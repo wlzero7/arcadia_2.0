@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coin Flip | Arcadia</title>
+    <link rel="stylesheet" href="css/global.css">
+    <link rel="stylesheet" href="css/coinflip.css">
+</head>
+<body>
+    <header class="header">
+        <nav class="navbar container" aria-label="Principal">
+            <a href="index.html" class="logo">&#127920; Arcadia</a>
+            <ul class="nav-links">
+                <li><a href="index.html">In&iacute;cio</a></li>
+                <li><a href="games.html" class="active">Jogos</a></li>
+                <li><a href="rooms.html">Salas</a></li>
+                <li><a href="ranking.html">Ranking</a></li>
+                <li><a href="perfil.html">Perfil</a></li>
+            </ul>
+            <div class="nav-actions"><div class="home-wallet"><strong id="walletBalance">--</strong></div></div>
+        </nav>
+    </header>
+    <main class="container coin-page">
+        <div class="coin-heading"><h1>Coin Flip</h1><a href="missoes.html">Miss&otilde;es &rarr;</a></div>
+        <nav class="coin-modes" aria-label="Modo de jogo">
+            <a href="coinflip.html" aria-current="page">Solo</a>
+            <a href="duel.html?game=coinflip">Duelo</a>
+            <a href="rooms.html?game=coinflip">Coop</a>
+        </nav>
+        <div class="coin-layout">
+            <section class="coin-table" aria-label="Mesa de Coin Flip">
+                <div class="coin-display"><img id="coinFace" src="css/coin-heads.svg" alt="Moeda: cara" width="208" height="208"></div>
+                <p class="coin-rule">Cara ou coroa &middot; 50% &middot; Pr&ecirc;mio total 2x</p>
+                <form id="coinForm">
+                    <fieldset class="coin-choices"><legend>Seu lado</legend>
+                        <label><input type="radio" name="side" value="heads" checked><span>Cara</span></label>
+                        <label><input type="radio" name="side" value="tails"><span>Coroa</span></label>
+                    </fieldset>
+                    <label for="coinWager">Aposta em AC</label>
+                    <div class="coin-wager"><input id="coinWager" type="number" value="100" min="10" max="1000000" step="1" required><button class="btn btn-primary" id="coinPlay" type="submit" disabled>Lan&ccedil;ar moeda</button></div>
+                </form>
+                <p id="coinMessage" class="coin-message" role="status" aria-live="polite">Carregando sess&atilde;o...</p>
+                <a id="coinLogin" class="hidden" href="index.html?login=1&amp;return=%2Fcoinflip.html">Entrar para jogar</a>
+            </section>
+            <section class="coin-history" aria-labelledby="coinHistoryTitle">
+                <h2 id="coinHistoryTitle">&Uacute;ltimas rodadas</h2>
+                <div class="coin-session"><span>Jogadas <strong id="coinCount">0</strong></span><span>Vit&oacute;rias <strong id="coinWins">0</strong></span></div>
+                <ol id="coinHistory"><li class="muted">Nenhuma rodada nesta sess&atilde;o.</li></ol>
+            </section>
+        </div>
+    </main>
+    <script src="js/sfx.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/wallet.js"></script>
+    <script src="js/coinflip.js"></script>
+</body>
+</html>

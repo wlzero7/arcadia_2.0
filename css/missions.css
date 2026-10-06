@@ -1,0 +1,49 @@
+.missions-page { padding: 32px 0 64px; }
+.missions-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.missions-heading h1 { font-size: 32px; letter-spacing: 0; }
+.missions-eyebrow { color: #71d6bd; font-size: 12px; margin-bottom: 8px; }
+.missions-refresh { width: 42px; height: 42px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 24px; }
+.mission-overview { display: grid; grid-template-columns: minmax(200px, 1.5fr) 1fr 1fr; gap: 32px; padding: 24px 0; border-block: 1px solid var(--border); }
+.mission-overview > div { display: grid; align-content: start; gap: 8px; }
+.mission-overview strong { font-size: 26px; }
+.mission-overview > div:last-child strong { color: #f9dc7c; }
+.mission-overview .muted { font-size: 14px; }
+.mission-overview progress { width: 100%; max-width: 320px; height: 7px; }
+.mission-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; padding: 26px 0 20px; }
+.mission-tabs { display: flex; border: 1px solid var(--border); border-radius: 6px; padding: 3px; }
+.mission-tabs button { min-width: 98px; min-height: 40px; border: 0; border-radius: 4px; background: transparent; color: var(--text-secondary); font-weight: 600; }
+.mission-tabs button[aria-selected="true"] { background: #25493d; color: #a2edd9; }
+.mission-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--text-secondary); font-size: 14px; }
+.mission-filter select { min-width: 148px; max-width: 100%; border-radius: 6px; }
+.mission-hide { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 14px; color: var(--text-secondary); }
+.mission-hide input { accent-color: #71d6bd; width: 16px; height: 16px; }
+.missions-reset { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--text-secondary); margin-bottom: 18px; }
+.missions-status { min-height: 24px; margin-bottom: 16px; color: var(--text-secondary); }
+.missions-status:empty { min-height: 0; margin-bottom: 0; }
+.missions-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.mission-card { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 20px; background: #141b1b; }
+.mission-card[data-state="ready"] { border-color: #5f9d85; background: #17281f; }
+.mission-card[data-state="claimed"] { background: #12171b; }
+.mission-card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
+.mission-card-head span { color: #97b2ac; font-size: 12px; }
+.mission-card-head strong { color: #f9dc7c; font-size: 14px; white-space: nowrap; }
+.mission-card h2 { font-size: 16px; line-height: 1.5; min-height: 48px; margin-bottom: 12px; letter-spacing: 0; overflow-wrap: anywhere; }
+.mission-progress-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; font-size: 12px; color: var(--text-secondary); }
+progress { appearance: none; border: 0; border-radius: 3px; overflow: hidden; background: #293536; accent-color: #71d6bd; }
+progress::-webkit-progress-bar { background: #293536; }
+progress::-webkit-progress-value { background: #71d6bd; }
+progress::-moz-progress-bar { background: #71d6bd; }
+.mission-card progress { width: 100%; height: 6px; margin: 10px 0 18px; }
+.mission-card footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; min-height: 40px; }
+.mission-card footer a { color: #a2edd9; font-size: 13px; }
+.mission-card footer button { min-height: 40px; border-radius: 6px; padding: 8px 12px; border: 1px solid #315e4d; background: #25493d; color: #a2edd9; font: inherit; font-size: 13px; }
+.mission-card footer button:disabled { color: #94a3a8; background: #1b2424; border-color: var(--border); cursor: default; }
+.missions-page button:focus-visible, .missions-page a:focus-visible { outline: 2px solid #f9dc7c; outline-offset: 3px; }
+@media (max-width: 1000px) { .missions-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 600px) {
+    .missions-list { grid-template-columns: 1fr; }
+    .mission-overview { grid-template-columns: 1fr 1fr; gap: 24px; }
+    .level-summary { grid-column: 1 / -1; }
+    .mission-hide { margin-left: 0; }
+    .mission-card h2 { min-height: 0; }
+}

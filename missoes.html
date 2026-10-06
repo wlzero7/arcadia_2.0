@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Miss&otilde;es | Arcadia</title>
+    <link rel="stylesheet" href="css/global.css">
+    <link rel="stylesheet" href="css/missions.css">
+</head>
+<body>
+    <header class="header">
+        <nav class="navbar container" aria-label="Principal">
+            <a href="index.html" class="logo">&#127920; Arcadia</a>
+            <ul class="nav-links">
+                <li><a href="index.html">In&iacute;cio</a></li>
+                <li><a href="games.html">Jogos</a></li>
+                <li><a href="rooms.html">Salas</a></li>
+                <li><a href="ranking.html">Ranking</a></li>
+                <li><a href="missoes.html" class="active" aria-current="page">Miss&otilde;es</a></li>
+                <li><a href="perfil.html">Perfil</a></li>
+            </ul>
+            <div class="nav-actions"><div class="home-wallet"><strong id="walletBalance">--</strong></div></div>
+        </nav>
+    </header>
+    <main class="container missions-page">
+        <div class="missions-heading"><div><p class="missions-eyebrow">ARCADIA</p><h1>Miss&otilde;es</h1></div><button id="missionsRefresh" class="missions-refresh" type="button" title="Atualizar miss&otilde;es" aria-label="Atualizar miss&otilde;es">&#8635;</button></div>
+        <section class="mission-overview" aria-label="Sua progress&atilde;o">
+            <div class="level-summary"><span class="muted">N&iacute;vel</span><strong id="missionLevel">--</strong><progress id="missionXP" max="100" value="0" aria-label="XP para o pr&oacute;ximo n&iacute;vel"></progress><span id="missionXPText" class="muted">-- XP</span></div>
+            <div><span class="muted">Conclu&iacute;das</span><strong id="missionCompleted">--</strong></div>
+            <div><span class="muted">XP para resgatar</span><strong id="missionReward">--</strong></div>
+        </section>
+        <div class="mission-toolbar">
+            <div class="mission-tabs" role="tablist" aria-label="Per&iacute;odo">
+                <button type="button" id="dailyTab" role="tab" aria-selected="true" aria-controls="missionPanel" data-cadence="daily">Di&aacute;rias</button>
+                <button type="button" id="weeklyTab" role="tab" aria-selected="false" aria-controls="missionPanel" data-cadence="weekly" tabindex="-1">Semanais</button>
+            </div>
+            <div class="mission-filter"><label for="missionCategory">Categoria</label><select id="missionCategory"><option value="all">Todas</option><option value="login">Login</option><option value="play">Partidas</option><option value="win">Vit&oacute;rias</option><option value="game">Jogos</option><option value="wager">Apostas</option><option value="social">Multiplayer</option></select></div>
+            <label class="mission-hide"><input id="missionHideClaimed" type="checkbox">Ocultar resgatadas</label>
+        </div>
+        <div class="missions-reset"><span id="missionReset">--</span><span id="missionPeriodCount">--</span></div>
+        <p id="missionsStatus" class="missions-status" role="status" aria-live="polite">Carregando miss&otilde;es...</p>
+        <a id="missionsLogin" class="btn btn-primary hidden" href="index.html?login=1&amp;return=%2Fmissoes.html">Entrar na minha conta</a>
+        <section id="missionPanel" role="tabpanel" aria-labelledby="dailyTab"><div id="missionsList" class="missions-list"></div></section>
+    </main>
+    <script src="js/api.js"></script>
+    <script src="js/wallet.js"></script>
+    <script src="js/missions.js"></script>
+</body>
+</html>
