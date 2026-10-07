@@ -18,11 +18,12 @@
 
 .profile-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1.2rem;
 }
 
 .profile-card {
+    min-width: 0;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -432,7 +433,43 @@
 
 /* ---------- MISSÕES ---------- */
 
+.missions-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+}
+
 .missions { display: flex; flex-direction: column; gap: .6rem; }
+
+#missionsDaily,
+#missionsWeekly {
+    min-height: 1.35rem;
+    color: var(--text);
+    font-size: 1rem;
+    line-height: 1.35;
+}
+
+.missions-card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .9rem;
+    flex-wrap: wrap;
+    margin-top: 1rem;
+    padding-top: .9rem;
+    border-top: 1px solid var(--border);
+}
+
+.missions-card-footer p {
+    margin: 0;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.missions-card-footer .btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
 
 .mission {
     background: var(--background);
@@ -595,5 +632,5 @@
 /* ---------- RESPONSIVO ---------- */
 
 @media (max-width: 800px) {
-    .profile-grid { grid-template-columns: 1fr; }
+    .profile-grid { grid-template-columns: minmax(0, 1fr); }
 }

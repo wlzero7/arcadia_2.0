@@ -96,13 +96,14 @@ router.post("/mines/cashout", authenticate, rounds.handler((req) => {
     return { multiplier, payout, mines: state.mines, ...rounds.settleRound(req.user.id, "mines", payout, state.picked.length ? "win" : "push", { picks: state.picked.length }) };
 }));
 
+const crashMultiplier = (startedAt) => Math.pow(1.06, Math.max(0, Date.now() - startedAt) / 1000 * 6);
 function crashState(userId, cashout = false) {
     const state = rounds.getSession(userId, "crash");
     if (!state) {
         if (cashout) throw new Error("Nenhuma partida em andamento.");
         return { active: false };
     }
-    const current = Math.pow(1.06, (Date.now() - state.startedAt) / 1000 * 6);
+    const current = crashMultiplier(state.startedAt);
     if (current >= state.crashPoint) {
         return { active: false, crashed: true, crashPoint: state.crashPoint, wager: state.wager, ...rounds.settleRound(userId, "crash", 0, "loss", { crashPoint: state.crashPoint }) };
     }
@@ -395,4 +396,4 @@ router.post("/plinko/drop", authenticate, rounds.handler((req) => {
     const outcome = payout > wager ? "win" : payout === wager ? "push" : "loss";
     return { risk, path, slot, multiplier, payout, outcome, ...rounds.settleInstant(req.user.id, "plinko", wager, payout, outcome, { risk, slot, path }) };
 }));
-module.exports = { router, GAMES, minesMultiplier };
+module.exports = { router, GAMES, minesMultiplier, crashMultiplier };

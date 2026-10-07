@@ -16,6 +16,42 @@
     let selectedAuctionSlot = null;
     let inventory = [];
     const preferredGame = new URLSearchParams(location.search).get("game") === "coinflip" ? "coinflip" : null;
+    let lastRenderedPlayId = null;
+    let activeRenderedId = null;
+    let actionPending = false;
+    let liveAnimating = false;
+    const liveTimers = new Set();
+    const GAME_ICON = { dice: "🎲", coinflip: "🪙", crash: "🚀", mines: "💣", roulette: "🎡", slots: "🎰" };
+    const GAME_LABEL = { dice: "Dados", coinflip: "Cara ou coroa", crash: "Crash", mines: "Mines", roulette: "Roleta", slots: "Slots" };
+    const SIDE_LABEL = { heads: "Cara", tails: "Coroa" };
+    const BET_LABEL = { red: "Vermelho", black: "Preto", even: "Par", odd: "Ímpar", low: "1-18", high: "19-36" };
+
+    function later(fn, delay) {
+        const id = setTimeout(() => {
+            liveTimers.delete(id);
+            fn();
+        }, delay);
+        liveTimers.add(id);
+        return id;
+    }
+
+    function clearLiveTimers() {
+        liveTimers.forEach((id) => clearTimeout(id));
+        liveTimers.clear();
+    }
+
+    function fmtAC(value) {
+        return (Number(value) || 0).toLocaleString("pt-BR") + " AC";
+    }
+
+    function signedAC(value) {
+        const n = Number(value) || 0;
+        return (n > 0 ? "+" : "") + fmtAC(n);
+    }
+
+    function esc(value) {
+        return ArcadiaAPI.escapeHtml(String(value ?? ""));
+    }
 
     function connect() {
         return new Promise((resolve, reject) => {
@@ -29,6 +65,7 @@
                 resolve(socket);
             });
             socket.on("connect_error", (e) => reject(e));
+            socket.on("disconnect", () => { actionPending = false; updateLiveControls(); });
 
             socket.on("duel:state", (d) => {
                 sessionStorage.setItem("arcadia_duel", d.code);
@@ -56,12 +93,13 @@
         $("duelCode").textContent = d.code;
 
         const me = ArcadiaAPI.getUser();
-        const myKey = me && d.p1.userId === me.id ? "p1" : "p2";
+        const myKey = me && d.p1.userId === me.id ? "p1" : me && d.p2?.userId === me.id ? "p2" : "p1";
 
         $("p1Name").textContent = d.p1.username;
         $("p1Balance").textContent = (d.p1.balance || 0).toLocaleString("pt-BR") + " AC";
         $("p2Name").textContent = d.p2 ? d.p2.username : "Aguardando...";
         $("p2Balance").textContent = d.p2 ? (d.p2.balance || 0).toLocaleString("pt-BR") + " AC" : "—";
+        if ($("walletBalance") && d[myKey]) $("walletBalance").textContent = fmtAC(d[myKey].balance);
 
         $("p1Box").classList.toggle("my-turn", d.turn === "p1" && d.phase === "playing");
         $("p2Box").classList.toggle("my-turn", d.turn === "p2" && d.phase === "playing");
@@ -89,6 +127,8 @@
             d.phase === "ready" ? "Ambos prontos para iniciar!" :
             d.phase === "playing" ? (myTurn ? "🎯 Sua vez!" : `⏳ Vez de ${d[d.turn].username}`) :
             "Duelo encerrado.";
+        renderLiveArena(d);
+        updateLiveControls();
 
         // log
         const log = $("duelLog");
@@ -135,8 +175,6 @@
     }
 
     // ---------- LEILÃO ----------
-    const GAME_ICON = { dice: "🎲", coinflip: "🪙", crash: "🚀", mines: "💣", roulette: "🎡", slots: "🎰" };
-
     function renderAuction(d, myKey) {
         const slots = $("auctionSlots");
         slots.innerHTML = "";
@@ -212,6 +250,395 @@
         if (!el) return;
         el.textContent = text;
         el.className = "game-result" + (cls ? " " + cls : "");
+    }
+
+    // ---------- ARENA AO VIVO ----------
+    function ownKey() {
+        return duel?.p1.userId === ArcadiaAPI.getUser()?.id ? "p1" : "p2";
+    }
+
+    function updateLiveControls() {
+        if (!duel) return;
+        const active = duel.activePlay;
+        const ownTurn = duel.phase === "playing" && duel.turn === ownKey();
+        const locked = actionPending || !socket?.connected || liveAnimating;
+        $("playBtn").disabled = locked || !ownTurn || !!active;
+        $("playBtn").textContent = ["mines", "crash"].includes(duel.chosenGame) ? "Iniciar rodada" : "Jogar";
+        ["wager", "crashTarget", "minesCount", "rouletteBet", "trumpSelect"].forEach((id) => {
+            if ($(id)) $(id).disabled = !!active || actionPending || liveAnimating;
+        });
+        const cashout = $("cashoutBtn");
+        cashout.classList.toggle("hidden", !active || !ownTurn);
+        cashout.disabled = locked;
+        if (active) cashout.textContent = "Sacar " + fmtAC(active.potentialPayout);
+        document.querySelectorAll("button.live-mine-cell").forEach((cell) => {
+            cell.disabled = locked || !active || !ownTurn || active.picked.includes(Number(cell.dataset.cell));
+        });
+    }
+
+    function sendAction(event, data = {}) {
+        if (actionPending || !socket?.connected) return;
+        actionPending = true;
+        updateLiveControls();
+        socket.timeout(5000).emit(event, data, (err, result) => {
+            actionPending = false;
+            if (err || !result?.ok) {
+                $("duelLiveSummary").textContent = err ? "Conexão interrompida. Aguarde a atualização da sala." : result.error;
+                $("duelLiveSummary").className = "duel-live-summary loss";
+                if (err && socket.connected) socket.emit("duel:sync", {});
+            }
+            updateLiveControls();
+        });
+    }
+
+    function resultClass(play) {
+        const transfer = Number(play.transfer) || 0;
+        return transfer > 0 ? "win" : transfer < 0 ? "loss" : "push";
+    }
+
+    function finishLive(play) {
+        const summary = $("duelLiveSummary");
+        if (!summary) return;
+        const transfer = Number(play.transfer) || 0;
+        const cls = resultClass(play);
+        liveAnimating = false;
+        const balance = document.querySelector("[data-live-balance]");
+        const multiplier = document.querySelector("[data-live-multiplier]");
+        if (balance) balance.textContent = signedAC(play.transfer);
+        if (multiplier) multiplier.textContent = Number(play.multiplier || 0).toFixed(2) + "x";
+        updateLiveControls();
+        if (play.game === "slots") loadTrumps();
+        summary.className = "duel-live-summary " + cls;
+        if (transfer > 0) {
+            summary.textContent = `${play.username} venceu a jogada e puxou ${fmtAC(transfer)}.`;
+            Sfx.win();
+        } else if (transfer < 0) {
+            summary.textContent = `${play.username} perdeu ${fmtAC(Math.abs(transfer))}.`;
+            Sfx.lose();
+        } else {
+            summary.textContent = `${play.username} empatou a jogada.`;
+            Sfx.push();
+        }
+    }
+
+    function liveMeta(play) {
+        return `
+            <div class="live-player-tag">${esc(play.username)} ${play.transfer == null ? "jogando" : "jogou"}</div>
+            <div class="live-detail-grid">
+                <span>Aposta <strong>${fmtAC(play.wager)}</strong></span>
+                <span>Saldo da jogada <strong data-live-balance>—</strong></span>
+                <span>Multiplicador <strong data-live-multiplier>—</strong></span>
+            </div>
+        `;
+    }
+
+    function renderIdleLive(game, phase) {
+        const icon = GAME_ICON[game] || "🎮";
+        const label = GAME_LABEL[game] || "Duelo";
+        const text =
+            phase === "auction" ? "Dispute o leilão para escolher o modo." :
+            game ? "Aguardando a primeira jogada." : "Aguardando jogadores.";
+        if (game === "mines") return `<div class="live-mines-board">${Array.from({ length: 25 }, () => '<button class="live-mine-cell" disabled></button>').join("")}</div>`;
+        if (game === "dice") return '<div class="live-dice">?</div>';
+        if (game === "coinflip") return '<div class="live-coin"><img src="css/coin-heads.svg" alt="Cara"></div>';
+        if (game === "slots") return '<div class="live-slots-machine"><div class="live-reel">❔</div><div class="live-reel">❔</div><div class="live-reel">❔</div></div>';
+        if (game === "roulette") return '<div class="live-roulette-wheel"><div class="live-roulette-number">?</div></div>';
+        if (game === "crash") return '<div class="live-crash-scene"><div class="live-crash-sky"><div class="live-crash-mult">1.00x</div><div class="live-crash-rocket">🚀</div></div></div>';
+        return `
+            <div class="live-idle">
+                <div class="live-idle-icon">${icon}</div>
+                <strong>${esc(label)}</strong>
+                <span>${esc(text)}</span>
+            </div>
+        `;
+    }
+
+    function renderLiveArena(d) {
+        const stage = $("duelLiveStage");
+        if (!stage) return;
+        const game = d.activePlay?.game || d.lastPlay?.game || d.chosenGame || preferredGame;
+        const title = $("liveGameTitle");
+        const subtitle = $("liveGameSubtitle");
+        const round = $("liveRoundChip");
+        if (title) title.textContent = game ? `${GAME_ICON[game] || "🎮"} ${GAME_LABEL[game] || game}` : "🎮 Arena ao vivo";
+        if (subtitle) {
+            subtitle.textContent =
+                d.phase === "auction" ? "Leilão aberto." :
+                d.phase === "playing" ? (d.activePlay ? `${d.activePlay.username} jogando` : `Vez de ${d[d.turn].username}`) :
+                d.phase === "finished" ? "Última jogada do duelo." :
+                "Aguardando jogadores.";
+        }
+        if (round) round.textContent = `Rodada ${d.activePlay ? d.round : d.lastPlay?.round || d.round || 1}`;
+
+        if (d.activePlay) {
+            renderActivePlay(d.activePlay);
+            return;
+        }
+
+        if (!d.lastPlay) {
+            clearLiveTimers();
+            lastRenderedPlayId = null;
+            activeRenderedId = null;
+            liveAnimating = false;
+            stage.dataset.game = game || "idle";
+            stage.innerHTML = renderIdleLive(game, d.phase);
+            const summary = $("duelLiveSummary");
+            if (summary) {
+                summary.className = "duel-live-summary";
+                summary.textContent =
+                    d.phase === "auction" ? "Leilão aberto." :
+                    d.chosenGame ? "Aguardando a primeira jogada." :
+                    "Aguardando o início do duelo.";
+            }
+            return;
+        }
+
+        if (d.lastPlay.id === lastRenderedPlayId) return;
+        lastRenderedPlayId = d.lastPlay.id;
+        activeRenderedId = null;
+        animateLivePlay(d.lastPlay);
+    }
+
+    function renderActivePlay(play) {
+        clearLiveTimers();
+        liveAnimating = false;
+        lastRenderedPlayId = null;
+        const firstRender = activeRenderedId !== play.id;
+        activeRenderedId = play.id;
+        const stage = $("duelLiveStage");
+        stage.dataset.game = play.game;
+        const summary = $("duelLiveSummary");
+        summary.className = "duel-live-summary";
+        if (play.game === "mines") {
+            const previous = new Set(Array.from(stage.querySelectorAll(".live-mine-cell.gem"), (cell) => Number(cell.dataset.cell)));
+            stage.innerHTML = `${liveMeta(play)}<div class="live-mines-board">${Array.from({ length: 25 }, (_, i) =>
+                `<button class="live-mine-cell${play.picked.includes(i) ? " open gem" : ""}" data-cell="${i}" aria-label="Célula ${i + 1}" ${play.picked.includes(i) ? "disabled" : ""}>${play.picked.includes(i) ? "💎" : ""}</button>`).join("")}</div>`;
+            stage.querySelectorAll("button.live-mine-cell").forEach((cell) => cell.addEventListener("click", () => sendAction("duel:pick", { cell: Number(cell.dataset.cell) })));
+            if (play.picked.some((cell) => !previous.has(cell))) Sfx.gem();
+            stage.querySelector("[data-live-multiplier]").textContent = play.multiplier.toFixed(2) + "x";
+            summary.textContent = `${play.username}: ${play.picked.length} célula(s) segura(s).`;
+        } else {
+            stage.innerHTML = `${liveMeta(play)}<div class="live-crash-scene"><div class="live-crash-sky" id="liveCrashSky">
+                <div class="live-crash-target">${play.autoCashout ? `Auto ${play.autoCashout.toFixed(2)}x` : "Saque manual"}</div>
+                <div class="live-crash-mult" id="liveCrashMult">1.00x</div><div class="live-crash-rocket" id="liveCrashRocket">🚀</div>
+                </div></div>`;
+            if (firstRender) Sfx.rocket();
+            const receivedAt = performance.now();
+            function tick() {
+                const elapsed = Math.max(0, duel.serverTime - play.startedAt) + performance.now() - receivedAt;
+                const value = Math.min(play.autoCashout || 1000000, Math.pow(1.06, elapsed / 1000 * 6));
+                const multiplier = Math.floor(value * 100) / 100;
+                paintCrash(multiplier);
+                stage.querySelector("[data-live-multiplier]").textContent = multiplier.toFixed(2) + "x";
+                $("cashoutBtn").textContent = "Sacar " + fmtAC(Math.floor(play.wager * multiplier));
+                later(tick, 50);
+            }
+            tick();
+            summary.textContent = `${play.username} em voo...`;
+        }
+    }
+
+    function paintCrash(multiplier) {
+        const sky = $("liveCrashSky"), rocket = $("liveCrashRocket"), mult = $("liveCrashMult");
+        if (mult) mult.textContent = multiplier.toFixed(2) + "x";
+        const t = Math.min(1, Math.max(0, (multiplier - 1) / 4));
+        if (sky && rocket) {
+            rocket.style.left = `${24 + t * (sky.clientWidth - 92)}px`;
+            rocket.style.bottom = `${20 + t * (sky.clientHeight - 86)}px`;
+            rocket.style.transform = `rotate(${-35 * t}deg)`;
+        }
+    }
+
+    function animateLivePlay(play) {
+        clearLiveTimers();
+        liveAnimating = true;
+        const stage = $("duelLiveStage");
+        if (!stage) return;
+        stage.dataset.game = play.game;
+        const summary = $("duelLiveSummary");
+        if (summary) {
+            summary.className = "duel-live-summary";
+            summary.textContent = `${play.username} jogando ${GAME_LABEL[play.game] || play.game}...`;
+        }
+        if (play.game === "dice") animateDice(play);
+        else if (play.game === "coinflip") animateCoinflip(play);
+        else if (play.game === "crash") animateCrash(play);
+        else if (play.game === "mines") animateMines(play);
+        else if (play.game === "roulette") animateRoulette(play);
+        else if (play.game === "slots") animateSlots(play);
+        else {
+            stage.innerHTML = `${liveMeta(play)}${renderIdleLive(play.game, "playing")}`;
+            finishLive(play);
+        }
+    }
+
+    function animateDice(play) {
+        const stage = $("duelLiveStage");
+        const picked = play.detail?.picked ?? play.choice?.number ?? "—";
+        stage.innerHTML = `
+            ${liveMeta(play)}
+            <div class="live-dice-scene">
+                <div class="live-dice rolling" id="liveDice">?</div>
+                <div class="live-choice">Escolheu <strong>${esc(picked)}</strong></div>
+            </div>
+        `;
+        Sfx.dice();
+        const dice = $("liveDice");
+        for (let i = 0; i < 10; i++) {
+            later(() => { if (dice) dice.textContent = String(Math.floor(Math.random() * 6) + 1); }, i * 80);
+        }
+        later(() => {
+            if (dice) {
+                dice.classList.remove("rolling");
+                dice.textContent = String(play.detail?.roll ?? "?");
+            }
+            finishLive(play);
+        }, 900);
+    }
+
+    function animateCoinflip(play) {
+        const stage = $("duelLiveStage");
+        const picked = play.detail?.picked ?? play.choice?.side;
+        const flip = play.detail?.flip || "heads";
+        stage.innerHTML = `
+            ${liveMeta(play)}
+            <div class="live-coin-scene">
+                <div class="live-coin flipping" id="liveCoin">
+                    <img src="css/coin-heads.svg" alt="Moeda">
+                </div>
+                <div class="live-choice">Escolheu <strong>${esc(SIDE_LABEL[picked] || picked || "—")}</strong></div>
+            </div>
+        `;
+        Sfx.coin();
+        later(() => {
+            const coin = $("liveCoin");
+            const img = coin?.querySelector("img");
+            if (coin) coin.classList.remove("flipping");
+            if (img) {
+                img.src = `css/coin-${flip}.svg`;
+                img.alt = `Moeda: ${SIDE_LABEL[flip] || flip}`;
+            }
+            finishLive(play);
+        }, 850);
+    }
+
+    function animateCrash(play) {
+        const stage = $("duelLiveStage");
+        const target = Number(play.detail?.target || play.choice?.autoCashout || 0);
+        const crashPoint = Number(play.detail?.crashPoint || 1);
+        const crashed = play.detail?.crashed ?? play.outcome === "loss";
+        const endAt = crashed ? crashPoint : Number(play.detail?.cashout || target || 1);
+        stage.innerHTML = `
+            ${liveMeta(play)}
+            <div class="live-crash-scene">
+                <div class="live-crash-sky" id="liveCrashSky">
+                    <div class="live-crash-target">${target ? `Auto ${target.toFixed(2)}x` : "Saque manual"}</div>
+                    <div class="live-crash-mult" id="liveCrashMult">1.00x</div>
+                    <div class="live-crash-rocket" id="liveCrashRocket">🚀</div>
+                </div>
+            </div>
+        `;
+        const sky = $("liveCrashSky");
+        const rocket = $("liveCrashRocket");
+        paintCrash(endAt);
+        sky.classList.add(crashed ? "crashed" : "won");
+        rocket.textContent = crashed ? "💥" : "💰";
+        if (crashed) Sfx.boom(); else Sfx.cashout();
+        finishLive(play);
+    }
+
+    function animateMines(play) {
+        const stage = $("duelLiveStage");
+        const mines = play.detail?.minePositions || [];
+        const opened = play.detail?.opened || [];
+        stage.innerHTML = `
+            ${liveMeta(play)}
+            <div class="live-mines-board" id="liveMinesBoard">
+                ${Array.from({ length: 25 }, (_, i) => `<div class="live-mine-cell" data-cell="${i}"></div>`).join("")}
+            </div>
+        `;
+        opened.forEach((cellIndex) => {
+            const cell = stage.querySelector(`[data-cell="${cellIndex}"]`);
+            if (!cell) return;
+            const boom = mines.includes(cellIndex);
+            cell.classList.add("open", boom ? "boom" : "gem");
+            cell.textContent = boom ? "💥" : "💎";
+        });
+        mines.forEach((cellIndex) => {
+            const cell = stage.querySelector(`[data-cell="${cellIndex}"]`);
+            if (cell && !cell.textContent) {
+                cell.classList.add("dim");
+                cell.textContent = "💣";
+            }
+        });
+        if (play.outcome === "loss") Sfx.boom(); else Sfx.cashout();
+        finishLive(play);
+    }
+
+    function animateRoulette(play) {
+        const stage = $("duelLiveStage");
+        const detail = play.detail || {};
+        const color = detail.color || "green";
+        const bet = play.choice?.bet || detail.results?.[0]?.type || "red";
+        stage.innerHTML = `
+            ${liveMeta(play)}
+            <div class="live-roulette-scene">
+                <div class="live-roulette-wheel spin" id="liveRouletteWheel">
+                    <div class="live-roulette-number" id="liveRouletteNumber">?</div>
+                </div>
+                <div class="live-choice">Aposta em <strong>${esc(BET_LABEL[bet] || bet)}</strong></div>
+            </div>
+        `;
+        Sfx.spin();
+        later(() => {
+            const wheel = $("liveRouletteWheel");
+            const number = $("liveRouletteNumber");
+            if (wheel) wheel.classList.remove("spin");
+            if (number) {
+                number.textContent = String(detail.number ?? 0);
+                number.className = "live-roulette-number " + color;
+            }
+            finishLive(play);
+        }, 1250);
+    }
+
+    function animateSlots(play) {
+        const stage = $("duelLiveStage");
+        const reels = play.detail?.reels || ["❔", "❔", "❔"];
+        stage.innerHTML = `
+            ${liveMeta(play)}
+            <div class="live-slots-scene">
+                <div class="live-slots-machine" id="liveSlotsMachine">
+                    <div class="live-reel spinning">❔</div>
+                    <div class="live-reel spinning">❔</div>
+                    <div class="live-reel spinning">❔</div>
+                </div>
+                <div class="live-choice">${play.trump ? `Trunfo <strong>${esc(play.trump)}</strong>` : "Sem trunfo"}</div>
+                <div id="liveCardDrop"></div>
+            </div>
+        `;
+        Sfx.spinSlots();
+        const reelEls = Array.from(stage.querySelectorAll(".live-reel"));
+        reels.forEach((emoji, i) => {
+            later(() => {
+                const reel = reelEls[i];
+                if (!reel) return;
+                reel.classList.remove("spinning");
+                reel.textContent = emoji;
+                Sfx.reelStop(i);
+            }, 700 + i * 320);
+        });
+        later(() => {
+            const machine = $("liveSlotsMachine");
+            if (machine) machine.classList.add(play.detail?.jackpot ? "jackpot" : resultClass(play) === "win" ? "won" : "lost");
+            if (play.card) {
+                const drop = $("liveCardDrop");
+                if (drop) drop.innerHTML = `<div class="live-card-drop">🎁 Carta: ${esc(play.card.name || play.card.key)}</div>`;
+                Sfx.cardDrop(play.card.rarity);
+            }
+            if (play.detail?.jackpot) Sfx.jackpot();
+            finishLive(play);
+        }, 1800);
     }
 
     // ---------- ESCOLHA POR JOGO ----------
@@ -322,6 +749,7 @@
     }
 
     $("playBtn").addEventListener("click", () => {
+        if (duel?.activePlay || liveAnimating || actionPending) return;
         const g = gameSelect ? gameSelect.value : "dice";
         const choice = {};
 
@@ -332,9 +760,9 @@
             if (!selectedSide) return alert("Escolha um lado!");
             choice.side = selectedSide;
         } else if (g === "crash") {
-            choice.autoCashout = Number($("crashTarget").value) || 2;
+            choice.autoCashout = $("crashTarget").value === "" ? null : Number($("crashTarget").value);
         } else if (g === "mines") {
-            choice.picks = Number($("minesPicks") && $("minesPicks").value) || 3;
+            choice.mines = Number($("minesCount").value);
         } else if (g === "roulette") {
             choice.bet = $("rouletteBet") ? $("rouletteBet").value : "red";
         } else if (g === "slots") {
@@ -342,10 +770,9 @@
             if (trump) choice.trump = trump;
         }
 
-        socket.emit("duel:play", { game: g, wager: Number($("wager").value), choice }, (r) => {
-            if (!r.ok) alert(r.error);
-        });
+        sendAction("duel:play", { game: g, wager: Number($("wager").value), choice });
     });
+    $("cashoutBtn").addEventListener("click", () => sendAction("duel:cashout"));
 
     // ---------- INIT ----------
     (async () => {
