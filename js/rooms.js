@@ -10,7 +10,7 @@ const Rooms = (() => {
     let selectedDice = null;
     let selectedSide = null;
     let visual = null, visualKey = null, lastRoundId = null, animating = false;
-    const LABELS = { dice: "Dados", coinflip: "Cara ou coroa", crash: "Crash", roulette: "Roleta", slots: "Slots" };
+    const LABELS = { dice: "Dados", coinflip: "Cara ou coroa", crash: "Crash", roulette: "Roleta", slots: "Slots", football: "Futebol" };
 
     // ---------- ELEMENTOS ----------
     const $ = (id) => document.getElementById(id);
@@ -153,7 +153,19 @@ const Rooms = (() => {
         selectedDice = null;
         selectedSide = null;
 
-        if (room.game === "dice") {
+        area.classList.toggle("football-bets", room.game === "football");
+        if (room.game === "football") {
+            area.dataset.footballMount = key;
+            area.textContent = "Preparando mercado...";
+            area.addEventListener("football:ready", lockControls, { once: true });
+            if (!area.dataset.footballPreviewListener) {
+                area.dataset.footballPreviewListener = "true";
+                area.addEventListener("football:market", ({ detail }) => { if (currentRoom?.game === "football" && !currentRoom.activePlay) visual?.preview(detail.home, detail.away); lockControls(); });
+            }
+            ArcadiaFootballControls.mount(area, (choice, wager) => {
+                socket.emit("room:play", { wager, choice, allWin: ArcadiaWallet.isAllWin("mpBet") }, (result) => { if (!result.ok) toastMsg(result.error); });
+            }, room).catch((error) => toastMsg(error.message));
+        } else if (room.game === "dice") {
             area.innerHTML = `
                 <div class="dice-big" id="mpDice">🎲</div>
                 <div class="number-pick" id="mpNumbers"></div>
@@ -319,7 +331,10 @@ const Rooms = (() => {
 
     function lockControls() {
         const active = currentRoom?.activePlay;
+        if (currentRoom?.game === "football") $("gameArea").footballSync?.(active);
         for (const id of ["mpPlay", "mpSpin", "mpBet", "mpTarget", "mpTrump"]) if ($(id)) $(id).disabled = Boolean(active || animating);
+        if (currentRoom?.game === "football" && $("gameArea").dataset.marketPending === "true" && $("mpPlay")) $("mpPlay").disabled = true;
+        document.querySelectorAll("#gameArea [data-football-choice]").forEach((input) => input.disabled = Boolean(active || animating));
         for (const id of ["stakeBtn", "withdrawBtn", "stakeAmount"]) $(id).disabled = Boolean(active);
         if ($("mpCashout")) $("mpCashout").disabled = !active || active.playerId !== ArcadiaAPI.getUser()?.id;
         document.querySelectorAll("#gameArea [data-rt]").forEach((button) => { button.disabled = Boolean(animating); });
@@ -341,7 +356,9 @@ const Rooms = (() => {
         if (!el) return;
         el.className = "game-result " + round.outcome;
 
-        if (round.type === "dice") {
+        if (round.type === "football") {
+            el.textContent = round.home.name + " " + round.score.join(" : ") + " " + round.away.name + " · Premio " + ArcadiaWallet.format(round.payout);
+        } else if (round.type === "dice") {
             el.textContent = round.outcome === "win"
                 ? `🎲 Caiu ${round.roll} — ${escapeHtml(round.playerName)} ganhou ${ArcadiaWallet.format(round.payout)}!`
                 : `🎲 Caiu ${round.roll} — ${escapeHtml(round.playerName)} perdeu ${ArcadiaWallet.format(round.wager)}`;
@@ -512,7 +529,8 @@ const Rooms = (() => {
     async function init() {
         window.lucide?.createIcons();
         await ArcadiaAPI.ready;
-        if (new URLSearchParams(location.search).get("game") === "coinflip") $("roomGame").value = "coinflip";
+        const preferred = new URLSearchParams(location.search).get("game");
+        if (["coinflip", "football"].includes(preferred)) $("roomGame").value = preferred;
         if (ArcadiaAPI.isLoggedIn()) {
             await ArcadiaWallet.refresh();
             $("walletBalance").textContent = ArcadiaWallet.format(ArcadiaWallet.getCached());

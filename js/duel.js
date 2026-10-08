@@ -15,14 +15,16 @@
     let selectedSide = null;
     let selectedAuctionSlot = null;
     let inventory = [];
-    const preferredGame = new URLSearchParams(location.search).get("game") === "coinflip" ? "coinflip" : null;
+    const requestedGame = new URLSearchParams(location.search).get("game");
+    const preferredGame = ["coinflip", "football"].includes(requestedGame) ? requestedGame : null;
+    let footballVisual = null;
     let lastRenderedPlayId = null;
     let activeRenderedId = null;
     let actionPending = false;
     let liveAnimating = false;
     const liveTimers = new Set();
     const GAME_ICON = { dice: "🎲", coinflip: "🪙", crash: "🚀", mines: "💣", roulette: "🎡", slots: "🎰", blackjack: "🃏" };
-    const GAME_LABEL = { dice: "Dados", coinflip: "Cara ou coroa", crash: "Crash", mines: "Mines", roulette: "Roleta", slots: "Slots", blackjack: "Blackjack" };
+    const GAME_LABEL = { dice: "Dados", coinflip: "Cara ou coroa", crash: "Crash", mines: "Mines", roulette: "Roleta", slots: "Slots", blackjack: "Blackjack", football: "Futebol" };
     const bjTrumps = ArcadiaBlackjack.controls($("duelBlackjackTrumps"), (body) => new Promise((resolve, reject) => {
         socket.emit("duel:special", body, (r) => { if (r.ok) resolve(); else reject(new Error(r.error)); });
     }));
@@ -74,6 +76,9 @@
                 sessionStorage.setItem("arcadia_duel", d.code);
                 duel = d;
                 render(d);
+            });
+            socket.on("duel:live", ({ play, serverTime }) => {
+                if (duel?.activePlay?.id === play.id && play.game === "football") footballVisual?.live(play, serverTime);
             });
 
             socket.on("duel:finished", (f) => {
@@ -223,6 +228,8 @@
             });
             slots.appendChild(div);
         });
+        const selected=d.auction[selectedAuctionSlot];
+        $("chooseBtn")?.classList.toggle("hidden",!selected || selected.bids[myKey]<=selected.bids[oppKey]);
     }
 
     // controles do leilão (com guarda — só liga se existirem no HTML)
@@ -272,7 +279,7 @@
             if ($(id)) $(id).disabled = !!active || actionPending || liveAnimating;
         });
         const cashout = $("cashoutBtn");
-        cashout.classList.toggle("hidden", !active || !ownTurn || active.game === "blackjack");
+        cashout.classList.toggle("hidden", !active || !ownTurn || ["blackjack", "football"].includes(active.game));
         cashout.disabled = locked;
         if (active) cashout.textContent = "Sacar " + fmtAC(active.potentialPayout);
         const blackjack = active?.game === "blackjack";
@@ -376,6 +383,22 @@
         const stage = $("duelLiveStage");
         if (!stage) return;
         const game = d.activePlay?.game || d.lastPlay?.game || d.chosenGame || preferredGame;
+        if (game === "football" && d.footballTeams) {
+            clearLiveTimers();liveAnimating=false;
+            if (!footballVisual) footballVisual=ArcadiaFootballVisual.create(stage);
+            if(d.activePlay)footballVisual.live(d.activePlay,d.serverTime);
+            else if(d.lastPlay?.detail?.home)footballVisual.round(d.lastPlay);
+            else footballVisual.preview(d.footballTeams.p1,d.footballTeams.p2);
+            const summary=$("duelLiveSummary");
+            summary.textContent=d.activePlay?"Bola em jogo · "+d.activePlay.username:d.lastPlay?.detail?.score?"Apito final · "+d.lastPlay.detail.score.join(" : ")+" · "+signedAC(d.lastPlay.transfer):"Aguardando a primeira partida";
+            const title=$("liveGameTitle");if(title)title.textContent="Futebol";
+            $("liveGameSubtitle").textContent=d.phase==="finished"?"Duelo encerrado":d.activePlay?"Partida em andamento":"Vez de "+d[d.turn].username;
+            $("liveRoundChip").textContent="Rodada "+(d.lastPlay?.round || d.round);
+            const price=d.footballMarkets?.[ownKey()];
+            $("footballDuelInfo").textContent="Vitoria do seu elenco · "+(price?.odds.home?.toFixed(2)||"—")+"x · "+(price? (price.probabilities.home*100).toFixed(1)+"%":"")+" · Premio limitado ao saldo do adversario.";
+            return;
+        }
+        if (footballVisual) { footballVisual.destroy(); footballVisual=null; }
         const title = $("liveGameTitle");
         const subtitle = $("liveGameSubtitle");
         const round = $("liveRoundChip");
@@ -714,6 +737,13 @@
 
         const trumpRow = $("trumpRow");
         if (trumpRow) trumpRow.classList.toggle("hidden", g !== "slots");
+        let footballInfo=$("footballDuelInfo");
+        if(!footballInfo){footballInfo=document.createElement("div");footballInfo.id="footballDuelInfo";gameSelect.parentElement.after(footballInfo);}
+        footballInfo.classList.toggle("hidden",g!=="football");
+        if(g==="football"&&!duel?.footballTeams){
+            footballInfo.replaceChildren();
+            const link=document.createElement("a");link.href="football.html?mode=duel";link.className="football-link";link.textContent="Montar elenco";footballInfo.append(link);
+        }
     }
 
     if (gameSelect) {

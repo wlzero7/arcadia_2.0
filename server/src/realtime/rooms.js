@@ -8,12 +8,14 @@ const { allocateShares } = require("../services/roomShares");
 const { trackRoomActivity } = require("../services/progression.routes");
 const { unlockAchievements } = require("../services/achievements");
 const rooms = new Map();
+const football = require("../services/football");
 const { identity } = require("../services/avatars");
-const MULTI_GAMES = { dice: {}, coinflip: {}, crash: {}, roulette: {}, slots: {} };
+const MULTI_GAMES = { dice: {}, coinflip: {}, crash: {}, roulette: {}, slots: {}, football: {} };
 
 function crashMultiplier(play, now = Date.now()) { return Math.floor(Math.exp(Math.max(0, now - play.startedAt) / 1000 * .16) * 100) / 100; }
 function publicPlay(play) {
     if (!play) return null;
+    if (play.game === "football") return { ...football.publicMatch(play), type: "football", playerId: play.playerId, playerName: play.playerName };
     return { id: play.id, type: "crash", playerId: play.playerId, playerName: play.playerName, wager: play.wager,
         startedAt: play.startedAt, autoCashout: play.autoCashout, multiplier: crashMultiplier(play) };
 }
@@ -96,9 +98,30 @@ function consumeTrump(userId, trump, pot, amount) {
 }
 function setupMultiplayer(io) {
     hydrateRooms();
+    function settleFootball(room) {
+        const play = room.activePlay;
+        if (play?.game !== "football" || Date.now() < play.startedAt + play.durationMs) return null;
+        const entry = mutate(room, () => {
+            const result = { ...football.result(play), type: "football", playerId: play.playerId, playerName: play.playerName, at: Date.now() };
+            room.pot += result.payout;
+            if (!Number.isSafeInteger(room.pot)) throw new Error("Saldo fora do limite permitido.");
+            room.stakes = allocateShares(room.stakes, room.pot);
+            result.potAfter = room.pot;
+            recordBet(play.playerId, "football", play.wager, result.payout, result.outcome, { ...result, allWin: play.allWin, roomCode: room.code });
+            trackRoomActivity(play.playerId, room.code);
+            room.activePlay = null;
+            room.history.push(result);
+            if (room.history.length > 100) room.history.shift();
+            if (room.pot >= 10000000) unlockAchievements([...room.stakes].filter(([, stake]) => stake > 0).map(([userId]) => ({ userId, key: "rich_friends" })));
+            return result;
+        });
+        io.to("room:" + room.code).emit("room:round", entry);
+        io.to("room:" + room.code).emit("room:update", roomSummary(room));
+        return entry;
+    }
     function settleCrash(room, manual = false) {
         const play = room.activePlay;
-        if (!play) throw new Error("Nenhuma rodada ativa.");
+        if (!play || play.game === "football") throw new Error("Nenhuma rodada de Crash ativa.");
         const current = crashMultiplier(play);
         const autoWon = play.autoCashout != null && play.crashPoint >= play.autoCashout && current >= play.autoCashout;
         const won = autoWon || (manual && current < play.crashPoint);
@@ -126,6 +149,11 @@ function setupMultiplayer(io) {
         for (const room of rooms.values()) if (room.activePlay) {
             try {
                 const play = room.activePlay;
+                if (play.game === "football") {
+                    if (Date.now() >= play.startedAt + play.durationMs) settleFootball(room);
+                    else io.to("room:" + room.code).emit("room:live", { play: publicPlay(play), serverTime: Date.now() });
+                    continue;
+                }
                 const end = Math.min(play.crashPoint, play.autoCashout ?? Infinity);
                 if (crashMultiplier(play) >= end) settleCrash(room);
                 else io.to("room:" + room.code).emit("room:live", { play: publicPlay(play), serverTime: Date.now() });
@@ -260,6 +288,10 @@ function setupMultiplayer(io) {
                     consumeTrump(socket.userId, trump, room.pot, amount);
                     const spin = resolveSpin({ wager: amount, trump });
                     result = { ...spin, multiplier: spin.mult, wager: amount * spin.lossMultiplier };
+                } else if (room.game === "football") {
+                    room.activePlay = { ...football.create(data.choice, amount), playerId: socket.userId, playerName: socket.username, allWin };
+                    room.pot -= amount;
+                    return null;
                 } else if (room.game === "crash") {
                     const target = data.choice?.autoCashout == null ? null : Number(data.choice.autoCashout);
                     if (target != null && (!Number.isFinite(target) || target < 1.01 || target > 100)) throw new Error("Cashout inválido.");

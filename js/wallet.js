@@ -1,5 +1,5 @@
 const ArcadiaWallet = (() => {
-    const kind = /\/(rooms|racing|blackjack-mp)\.html$/.test(location.pathname) ? "coop" : /\/duel\.html$/.test(location.pathname) ? "duel" : "solo";
+    const kind = /\/(rooms|racing|blackjack-mp)\.html$/.test(location.pathname) ? "coop" : /\/duel\.html$/.test(location.pathname) || (location.pathname.endsWith("/football.html") && new URLSearchParams(location.search).get("mode") === "duel") ? "duel" : "solo";
     const allWin = new Set();
     let poolBalance = 0;
     function setPoolBalance(value) {

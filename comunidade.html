@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/png" href="/assets/arcadia-logo.png">
+    <title>Comunidade | Arcadia</title>
+    <link rel="stylesheet" href="css/global.css">
+    <link rel="stylesheet" href="css/community.css">
+</head>
+<body>
+    <header class="header"><nav class="navbar container">
+        <a href="index.html" class="logo">Arcadia</a>
+        <ul class="nav-links">
+            <li><a href="index.html">Inicio</a></li><li><a href="games.html">Jogos</a></li>
+            <li><a href="rooms.html">Salas</a></li><li><a href="ranking.html">Ranking</a></li>
+            <li><a href="comunidade.html" class="active">Comunidade</a></li>
+            <li><a href="perfil.html">Perfil</a></li><li><a href="sobre.html">Sobre</a></li>
+        </ul>
+        <div class="nav-actions"><strong id="walletBalance"></strong></div>
+    </nav></header>
+    <main class="community-main container">
+        <div class="community-heading"><div><p class="eyebrow">ARCADIA / JOGADORES</p><h1>Comunidade</h1></div>
+            <button class="btn btn-primary" id="newThread"><i data-lucide="plus"></i> Novo topico</button>
+        </div>
+        <div class="community-layout">
+            <aside class="community-sidebar">
+                <div class="community-tabs" role="tablist" aria-label="Canais">
+                    <button id="discussionTab" role="tab" aria-selected="true" data-category="discussion"><i data-lucide="messages-square"></i> Discussoes</button>
+                    <button id="feedbackTab" role="tab" aria-selected="false" data-category="feedback"><i data-lucide="lightbulb"></i> Feedbacks <i data-lucide="lock-keyhole" class="feedback-lock"></i></button>
+                </div>
+                <div class="community-profile" id="communityProfile"></div>
+                <div class="community-rules"><h2>Convivencia</h2><p>Respeito entre jogadores. Sem spam, dados privados ou ofertas de dinheiro real.</p></div>
+            </aside>
+            <section class="community-feed" aria-label="Topicos">
+                <div class="feed-toolbar"><h2 id="channelTitle">Discussoes</h2>
+                    <form id="searchForm" role="search"><label class="sr-only" for="threadSearch">Pesquisar topicos</label><input id="threadSearch" type="search" maxlength="80" placeholder="Pesquisar topicos"><button class="icon-button" title="Pesquisar" aria-label="Pesquisar"><i data-lucide="search"></i></button></form>
+                </div>
+                <div class="community-message" id="communityMessage" role="status" hidden></div>
+                <div id="threadList" aria-live="polite"></div>
+                <button class="btn btn-outline" id="loadMore" hidden>Mais topicos <i data-lucide="chevron-down"></i></button>
+            </section>
+        </div>
+    </main>
+    <dialog id="composeDialog" class="community-dialog">
+        <form id="composeForm">
+            <div class="dialog-heading"><h2>Novo topico</h2><button type="button" class="icon-button" data-close="composeDialog" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button></div>
+            <label for="threadTitle">Titulo</label><input id="threadTitle" required minlength="8" maxlength="120" autocomplete="off">
+            <label for="threadBody">Mensagem</label><textarea id="threadBody" required minlength="20" maxlength="6000" rows="8"></textarea>
+            <p id="composeMessage" role="alert"></p><button class="btn btn-primary" type="submit">Publicar <i data-lucide="send"></i></button>
+        </form>
+    </dialog>
+    <dialog id="threadDialog" class="community-dialog thread-dialog">
+        <div class="dialog-heading"><span id="threadCategory"></span><button class="icon-button" data-close="threadDialog" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button></div>
+        <div id="threadContent"></div>
+        <div id="replyList"></div><button class="btn btn-outline" id="olderReplies" hidden>Respostas anteriores</button>
+        <form id="replyForm"><label for="replyBody">Sua resposta</label><textarea id="replyBody" required minlength="3" maxlength="2000" rows="3"></textarea><button class="btn btn-primary">Responder <i data-lucide="send"></i></button></form>
+        <p id="replyMessage" role="status"></p>
+    </dialog>
+    <dialog id="moderationDialog" class="community-dialog">
+        <form id="moderationForm"><div class="dialog-heading"><h2 id="moderationTitle">Moderar</h2><button type="button" class="icon-button" data-close="moderationDialog" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button></div>
+            <label for="moderationReason">Motivo</label><textarea id="moderationReason" required minlength="5" maxlength="500" rows="3"></textarea><p id="moderationMessage" role="alert"></p><button class="btn btn-primary">Confirmar</button>
+        </form>
+    </dialog>
+    <script src="js/api.js"></script><script src="js/wallet.js"></script>
+    <script src="assets/lucide.min.js"></script><script src="js/community.js"></script>
+</body>
+</html>

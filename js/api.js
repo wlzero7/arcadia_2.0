@@ -8,7 +8,7 @@ window.ArcadiaAvatar = {
             image.src = value; image.alt = "Foto de " + name;
             image.addEventListener("error", () => { element.textContent = "🎰"; }, { once: true });
             element.appendChild(image);
-        } else element.textContent = typeof value === "string" && value.length <= 8 ? value : "🎰";
+        } else element.textContent = typeof value === "string" && value.trim().length > 0 && value.length <= 8 ? value : "🎰";
     },
     chat(element, message) {
         element.className = "avatar-chat";
@@ -88,6 +88,12 @@ const ArcadiaAPI = (() => {
 window.ArcadiaAPI = ArcadiaAPI;
 document.addEventListener("DOMContentLoaded", async () => {
     const nav = document.querySelector(".nav-links");
+    if (nav && !nav.querySelector('a[href="comunidade.html"]')) {
+        const item = document.createElement("li"), link = document.createElement("a");
+        link.href = "comunidade.html"; link.textContent = "Comunidade";
+        item.appendChild(link);
+        nav.insertBefore(item, nav.querySelector('a[href="perfil.html"]')?.parentElement || null);
+    }
     if (nav && !nav.querySelector('a[href="missoes.html"]')) {
         const item = document.createElement("li"), link = document.createElement("a");
         link.href = "missoes.html"; link.textContent = "Missões";

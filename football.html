@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Futebol | Arcadia</title><link rel="icon" type="image/png" href="/assets/arcadia-logo.png">
+    <link rel="stylesheet" href="css/global.css"><link rel="stylesheet" href="css/football.css">
+</head>
+<body>
+    <header class="header"><nav class="navbar container">
+        <a href="index.html" class="logo">Arcadia</a>
+        <ul class="nav-links"><li><a href="index.html">Inicio</a></li><li><a href="games.html" class="active">Jogos</a></li><li><a href="rooms.html">Salas</a></li><li><a href="ranking.html">Ranking</a></li><li><a href="perfil.html">Perfil</a></li><li><a href="sobre.html">Sobre</a></li></ul>
+        <div class="nav-actions"><strong id="walletBalance">0 AC</strong></div>
+    </nav></header>
+    <main class="container football-page">
+        <div class="football-heading"><div><h1>Futebol</h1><p>ARCADIA ARENA</p></div>
+            <nav class="football-modes" aria-label="Modo"><a href="football.html" id="soloMode">Solo</a><a href="football.html?mode=duel" id="duelMode">Duelo</a><a href="rooms.html?game=football">Coop</a></nav>
+        </div>
+        <div id="footballStatus" class="football-status" role="status"></div>
+        <section id="soloView">
+            <div class="football-layout">
+                <div><div id="footballStage" class="football-stadium"></div><div id="footballRosters" class="football-rosters"></div></div>
+                <form id="footballBet" class="football-bets">
+                    <label>Casa<select id="homeTeam"></select></label><label>Visitante<select id="awayTeam"></select></label>
+                    <fieldset id="footballMarket" class="football-market"><legend>Resultado final</legend></fieldset>
+                    <label for="wager">Aposta · carteira Solo</label><div class="football-wager"><input id="wager" type="number" min="10" max="1000000" step="1" value="100" required></div>
+                    <button id="footballStart" class="btn btn-primary" type="submit">Iniciar partida</button>
+                    <div id="footballReceipt" class="football-receipt" role="status"></div>
+                    <p class="football-notice">Equipes ficticias. AC sem valor monetario real. A odd inclui a aposta; premio arredondado para baixo. Retorno teorico de ate 96%.</p>
+                </form>
+            </div>
+        </section>
+        <section id="clubView" hidden>
+            <div class="club-toolbar"><h2>Meu elenco · 4-3-3</h2><label class="club-brand">Identidade do clube<select id="clubBrand"></select></label></div>
+            <div class="football-layout">
+                <form id="clubForm"><div id="clubPlayers"></div><div class="club-summary"><span>Custo adicional <strong id="clubCost">0 AC</strong></span><span>Forca <strong id="clubStrength">45 OVR</strong></span></div><button class="btn btn-primary" id="clubSave">Salvar elenco</button>
+                    <p class="football-notice">Investimentos permanentes por jogador, pagos com AC da carteira Duelo. Sem reembolso. Elencos mais fortes tem maior chance de vitoria e odds menores. Onze titulares, sem reservas.</p></form>
+                <div class="football-bets"><div id="clubStage" class="football-stadium"></div><a class="btn btn-outline" href="duel.html?game=football">Abrir Duelo</a><div id="clubReceipt" class="football-receipt" role="status"></div></div>
+            </div>
+        </section>
+    </main>
+    <script src="assets/lucide.min.js"></script><script src="js/api.js"></script><script src="js/wallet.js"></script>
+    <script src="js/football-visual.js"></script><script src="js/football.js"></script>
+</body>
+</html>

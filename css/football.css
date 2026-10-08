@@ -1,0 +1,62 @@
+.football-page { padding:28px 0 48px; }
+.football-heading { display:flex; align-items:center; justify-content:space-between; gap:20px; margin-bottom:20px; }
+.football-heading h1 { font-size:28px; margin:0; }
+.football-heading p { color:#9eafac; font-size:13px; margin:6px 0 0; }
+.football-modes { display:flex; border-bottom:1px solid #3e494a; }
+.football-modes a { color:#b4c0bd; padding:10px 16px; text-decoration:none; font-size:14px; }
+.football-modes .active { color:#8be9b9; border-bottom:2px solid #56d496; }
+.football-layout { display:grid; grid-template-columns:minmax(0,1fr) 290px; gap:24px; align-items:start; }
+.football-stadium { position:relative; display:block!important; width:100%; height:auto!important; aspect-ratio:16/10; min-height:240px; overflow:hidden; background:#101719; padding:0!important; border:0!important; border-radius:0!important; }
+.football-stadium canvas { position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:pan-y; cursor:grab; }
+.football-webgl-fallback { position:absolute; inset:30% 10%; font-size:14px; line-height:1.7; text-align:center; color:#afc9ba; }
+.football-score { position:absolute; top:12px; left:12px; right:12px; display:grid; grid-template-columns:minmax(0,1fr) 66px minmax(0,1fr); align-items:center; background:#101719ed; padding:10px 12px; gap:8px; text-align:center; pointer-events:none; }
+.football-score strong { font-size:13px; overflow-wrap:anywhere; border-bottom:2px solid transparent; padding-bottom:4px; font-weight:600; }
+.football-score b { font-size:24px; white-space:nowrap; }
+.football-minute { grid-column:1/-1; color:#87dab0; font-size:12px; }
+.football-ticker { position:absolute; bottom:12px; left:12px; right:120px; font-size:12px; line-height:1.4; background:#101719ec; color:#e6f1eb; padding:8px 10px; pointer-events:none; overflow-wrap:anywhere; }
+.football-camera { position:absolute; bottom:12px; right:12px; display:flex; gap:3px; }
+.football-camera .icon-button { width:30px; height:30px; min-width:30px; background:#172322; color:#d3f4df; border:1px solid #426052; border-radius:4px; padding:6px; }
+.football-camera svg { width:16px; height:16px; }
+.football-bets { display:grid; gap:15px; min-width:0; }
+.football-bets label,.club-brand { display:grid; gap:6px; color:#bdc8c4; font-size:13px; }
+.football-bets select,.football-bets input,.club-row select,.club-row input,.club-brand select { width:100%; min-width:0; height:39px; background:#101518; border:1px solid #3b4847; color:#ecf6ef; border-radius:4px; padding:8px; font:inherit; }
+.football-market { border:0; padding:0; margin:0; display:grid; gap:6px; }
+.football-market legend { font-size:13px; color:#bdc8c4; margin-bottom:8px; }
+.football-odd { display:flex!important; align-items:center; justify-content:space-between; padding:12px; border:1px solid #3b4847; border-radius:4px; cursor:pointer; }
+.football-odd:has(input:checked) { border-color:#68d89e; background:#17372b; color:#d1fae3; }
+.football-odd input { width:16px; height:16px; accent-color:#68d89e; }
+.football-odd span { flex:1; font-size:13px; padding-left:8px; overflow-wrap:anywhere; }
+.football-odd strong { color:#92e3b6; font-size:16px; white-space:nowrap; }
+.football-odd small { display:block; color:#98aaa2; font-size:11px; margin-top:3px; }
+.football-wager { display:flex; flex-wrap:wrap; gap:8px; }
+.football-wager input { flex:1; width:110px; }
+.football-bets .btn-primary { background:#25844f; box-shadow:none; width:100%; }
+.football-bets .btn-primary:hover { background:#2c995d; }
+.football-receipt { border-top:1px solid #3b4847; padding-top:14px; font-size:14px; min-height:45px; overflow-wrap:anywhere; line-height:1.6; }
+.football-receipt.win { color:#8beaab; }.football-receipt.loss { color:#ff9aa2; }
+.football-status { min-height:22px; margin:12px 0; color:#abbdb3; font-size:13px; }
+.football-rosters { display:grid; grid-template-columns:1fr 1fr; gap:22px; margin-top:24px; }
+.football-rosters h2 { font-size:15px; margin-bottom:10px; }
+.football-rosters ol { list-style:none; margin:0; padding:0; }
+.football-rosters li { display:flex; gap:8px; padding:7px 0; font-size:12px; color:#b7c8be; border-bottom:1px solid #293733; }
+.football-rosters li strong { width:22px; color:#edfaf2; }
+.football-rosters li span { flex:1; }
+.club-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:16px; }
+.club-toolbar h2 { font-size:18px; margin:0; }
+#clubView .football-bets { display:flex; flex-direction:column; }
+#clubView .football-bets > * { width:100%; }
+.club-brand { max-width:250px; }
+.club-row { display:grid; grid-template-columns:35px 40px minmax(0,1fr) 135px 90px; gap:10px; align-items:center; border-bottom:1px solid #31403a; padding:10px 0; }
+.club-row > strong { color:#88dab0; text-align:center; }
+.club-row > span { font-size:12px; color:#a6bcae; }
+.club-row label { font-size:11px; color:#9db0a5; }
+.club-rating { text-align:right; font-size:12px; color:#b5cdbc; }
+.club-rating meter { display:block; width:100%; margin-top:5px; accent-color:#6fe6a8; }
+.club-summary { display:flex; flex-wrap:wrap; gap:18px; align-items:center; margin:18px 0; font-size:14px; }
+.club-summary strong { color:#9bedbc; }
+.football-notice { font-size:12px; color:#9ab0a2; line-height:1.7; margin-top:15px; }
+.football-link { color:#91e2b4; font-size:13px; }
+#clubView[hidden],#soloView[hidden] { display:none; }
+#duelLiveStage.football-stadium { min-height:280px; }
+@media(max-width:900px) { .football-layout { grid-template-columns:minmax(0,1fr); }.football-bets { grid-template-columns:1fr 1fr; }.football-market,.football-receipt,.football-notice,.football-bets > button { grid-column:1/-1; }.football-heading { flex-wrap:wrap; gap:10px; } }
+@media(max-width:520px) { .football-page { padding-top:20px; }.football-heading h1 { font-size:24px; }.football-stadium { aspect-ratio:1.15; }.football-score { left:6px;right:6px;top:6px;padding:8px; }.football-score strong { font-size:11px; }.football-rosters { gap:12px; }.club-row { grid-template-columns:24px 30px minmax(0,1fr); gap:6px; }.club-row label { grid-column:3;display:flex;align-items:center;gap:8px; }.club-row label input { width:115px; }.club-rating { grid-column:1/3;grid-row:auto;text-align:left; }.club-toolbar { align-items:start;flex-direction:column; }.football-bets { gap:12px; }.football-ticker { font-size:11px; left:6px;bottom:8px;right:111px; }.football-camera { right:6px;bottom:8px; }.football-rosters li { font-size:11px; } }

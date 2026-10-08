@@ -194,6 +194,53 @@ CREATE TABLE IF NOT EXISTS avatar_images (
 );
 CREATE INDEX IF NOT EXISTS idx_rooms_code ON rooms(code);
 CREATE INDEX IF NOT EXISTS idx_slots_cards_user ON slots_cards(user_id);
+CREATE TABLE IF NOT EXISTS community_threads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    category TEXT NOT NULL CHECK (category IN ('discussion','feedback')),
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open','closed')),
+    removed INTEGER NOT NULL DEFAULT 0 CHECK (removed IN (0,1)),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS community_replies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id INTEGER NOT NULL REFERENCES community_threads(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    removed INTEGER NOT NULL DEFAULT 0 CHECK (removed IN (0,1)),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS community_likes (
+    thread_id INTEGER NOT NULL REFERENCES community_threads(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (thread_id,user_id)
+);
+CREATE TABLE IF NOT EXISTS community_moderation (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    target_type TEXT NOT NULL CHECK (target_type IN ('thread','reply')),
+    target_id INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_community_category ON community_threads(category, removed, id);
+CREATE INDEX IF NOT EXISTS idx_community_author ON community_threads(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_community_replies ON community_replies(thread_id, removed, id);
+CREATE INDEX IF NOT EXISTS idx_community_reply_author ON community_replies(user_id, created_at);
+CREATE TABLE IF NOT EXISTS football_clubs (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    team_id TEXT NOT NULL,
+    lineup TEXT NOT NULL,
+    investments TEXT NOT NULL DEFAULT '{}',
+    revision INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS football_results (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    state TEXT NOT NULL
+);
 `;
 
 db.exec(SCHEMA);

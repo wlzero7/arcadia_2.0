@@ -6,12 +6,15 @@ const { wager, recordBet } = require("../services/rounds");
 const roulette = require("../services/roulette");
 const { TRUMPS, resolveSpin, rollCardDrop } = require("../services/slotsEngine");
 const bj = require("../services/blackjack");
+const football = require("../services/football");
+const clubs = require("../services/football-clubs");
 const { unlockAchievement, trackDuelActivity } = require("../services/progression.routes");
 const duels = store.load("duel");
-const MODES = ["dice", "coinflip", "crash", "mines", "roulette", "slots", "blackjack"];
+const MODES = ["dice", "coinflip", "crash", "mines", "roulette", "slots", "blackjack", "football"];
 
 function activeState(play) {
     if (!play) return null;
+    if (play.game === "football") return { ...football.publicMatch(play), playerKey: play.playerKey, username: play.username };
     if (play.game === "blackjack") return { id: play.id, game: play.game, playerKey: play.playerKey, username: play.username, wager: play.wager, startedAt: play.startedAt, ...bj.publicHand(play) };
     const multiplier = play.game === "mines" ? minesMultiplier(play.mines.length, play.picked.length)
         : Math.floor(crashMultiplier(play.startedAt) * 100) / 100;
@@ -28,7 +31,7 @@ function duelState(duel) {
     const player = (p) => p ? { userId: p.userId, username: p.username, balance: p.balance, ready: p.ready } : null;
     return { code: duel.code, phase: duel.phase, round: duel.round, turn: duel.turn, p1: player(duel.players.p1), p2: player(duel.players.p2),
         auction: duel.auction, auctionWinner: duel.auctionWinner, chosenGame: duel.chosenGame,
-        activePlay: activeState(duel.activePlay), lastPlay: duel.lastPlay || null, serverTime: Date.now(), log: duel.log.slice(-50) };
+        activePlay: activeState(duel.activePlay), lastPlay: duel.lastPlay || null, footballTeams: duel.footballTeams || null, footballMarkets: duel.footballMarkets || null, serverTime: Date.now(), log: duel.log.slice(-50) };
 }
 function pushLog(duel, message) {
     duel.log.push({ system: true, message, at: Date.now() });
@@ -95,6 +98,11 @@ function settlePlay(duel, key, amount, raw, choice = {}, trump = null, id = null
 }
 function updateCrash(duel, cashout = false) {
     const play = duel.activePlay;
+    if (play?.game === "football") {
+        if (Date.now() < play.startedAt + play.durationMs) return null;
+        const result = football.result(play);
+        return settlePlay(duel, play.playerKey, play.wager, { payout: result.payout, detail: result }, {}, null, play.id);
+    }
     if (!play || play.game !== "crash") return null;
     const current = crashMultiplier(play.startedAt);
     const auto = play.autoCashout && play.autoCashout <= play.crashPoint && current >= play.autoCashout;
@@ -119,6 +127,12 @@ function finishDuel(duel, winnerKey) {
 }
 function setupDuels(io) {
     const crashTimers = new Map();
+    const liveTimer = setInterval(() => {
+        for (const duel of duels.values()) if (duel.phase === "playing" && duel.activePlay?.game === "football") {
+            io.to("duel:" + duel.code).emit("duel:live", { play: activeState(duel.activePlay), serverTime: Date.now() });
+        }
+    }, 500);
+    liveTimer.unref();
     function publish(duel) {
         io.to("duel:" + duel.code).emit("duel:state", duelState(duel));
         if (duel.phase === "finished") {
@@ -130,9 +144,9 @@ function setupDuels(io) {
         clearTimeout(crashTimers.get(duel.code));
         crashTimers.delete(duel.code);
         const play = duel.activePlay;
-        if (duel.phase !== "playing" || play?.game !== "crash") return;
-        const endAt = Math.min(play.crashPoint, play.autoCashout || Infinity);
-        const remaining = play.startedAt + Math.log(endAt) / (Math.log(1.06) * 6) * 1000 - Date.now();
+        if (duel.phase !== "playing" || !["crash", "football"].includes(play?.game)) return;
+        const remaining = play.game === "football" ? play.startedAt + play.durationMs - Date.now()
+            : play.startedAt + Math.log(Math.min(play.crashPoint, play.autoCashout || Infinity)) / (Math.log(1.06) * 6) * 1000 - Date.now();
         const timer = setTimeout(() => {
             const before = structuredClone(duel);
             try {
@@ -252,6 +266,8 @@ function setupDuels(io) {
             if (wallet.balance - slot.bids[key] < 10) throw new Error("Reserve pelo menos 10 AC para jogar.");
             pool.adjustBalanceSync(wallet.id, -slot.bids[key], "bet", "duel", duel.code);
             duel.auctionWinner = key; duel.chosenGame = slot.game; duel.turn = key; duel.phase = "playing"; duel.lastPlay = null;
+            if (slot.game === "football") duel.footballTeams = Object.fromEntries(Object.entries(duel.players).map(([k, player]) => [k, clubs.asTeam(clubs.load(player.userId))]));
+            if (slot.game === "football") duel.footballMarkets = { p1: football.market(duel.footballTeams.p1, duel.footballTeams.p2), p2: football.market(duel.footballTeams.p2, duel.footballTeams.p1) };
             return {};
         });
         on("duel:play", (data) => {
@@ -267,10 +283,13 @@ function setupDuels(io) {
             if (trump === "allwin") amount = wallet.balance;
             const maximum = amount * (trump === "duplicador" ? 2 : 1);
             if (wallet.balance < maximum) throw new Error("Saldo DUEL insuficiente para a perda máxima.");
-            if (game === "mines" || game === "crash" || game === "blackjack") {
+            if (game === "mines" || game === "crash" || game === "blackjack" || game === "football") {
                 const play = { id: `${duel.code}:${duel.round}:${code()}`, game, playerKey: key, username: socket.username,
                     wager: amount, allWin: amount === wallet.balance, startedAt: Date.now() };
-                if (game === "mines") {
+                if (game === "football") {
+                    const oppKey = key === "p1" ? "p2" : "p1";
+                    Object.assign(play, football.createMatch(duel.footballTeams[key], duel.footballTeams[oppKey], "home", amount));
+                } else if (game === "mines") {
                     const count = Number(data.choice?.mines ?? 5);
                     if (!Number.isInteger(count) || count < 1 || count > 24) throw new Error("Número de minas inválido.");
                     play.mines = shuffle(Array.from({ length: 25 }, (_, i) => i)).slice(0, count);
@@ -338,6 +357,7 @@ function setupDuels(io) {
             const duel = current(), key = participant(duel), play = duel.activePlay;
             if (duel.phase !== "playing" || !play || play.playerKey !== key) throw new Error("Nenhuma jogada sua em andamento.");
             if (play.game === "blackjack") throw new Error("Use Parar no Blackjack.");
+            if (play.game === "football") throw new Error("Aguarde o apito final do futebol.");
             return { result: play.game === "mines" ? cashoutMines(duel, play) : updateCrash(duel, true) };
         });
         on("duel:sync", () => { const duel = current(); updateCrash(duel); return {}; });
@@ -346,6 +366,6 @@ function setupDuels(io) {
             if (duel) { duel.players[participant(duel)].socketIds.delete(socket.id); store.save("duel", duel); }
         });
     });
-    return { duels };
+    return { duels, close() { clearInterval(liveTimer); for (const timer of crashTimers.values()) clearTimeout(timer); } };
 }
 module.exports = { setupDuels, duels, createDuel };

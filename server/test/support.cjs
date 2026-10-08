@@ -29,7 +29,7 @@ function invoke(router, path, userId, body = {}, method = "post", extra = {}) {
     const layer = router.stack.find((l) => l.route?.path === path && l.route.methods[method]);
     if (!layer) throw new Error("Missing route: " + path);
     let status = 200, result, failure;
-    const response = { status(code) { status = code; return this; }, json(data) { result = data; return this; } };
+    const response = { setHeader() {}, status(code) { status = code; return this; }, json(data) { result = data; return this; } };
     const handler = layer.route.stack.at(-1).handle;
     handler({ user: { id: userId, username: "tester" }, body, query: {}, ...extra }, response, (err) => { failure = err; });
     if (failure) throw failure;

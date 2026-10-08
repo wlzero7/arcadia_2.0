@@ -17,6 +17,7 @@ window.ArcadiaVisuals = (() => {
         ctx.beginPath(); ctx.arc(cx,cx,100,0,Math.PI*2); ctx.fillStyle="#121317"; ctx.fill(); ctx.strokeStyle="#c0a273"; ctx.lineWidth=3; ctx.stroke();
     }
     function create(stage, game) {
+        if (game === "football") return ArcadiaFootballVisual.create(stage);
         let generation=0, frame=0, activeId=null, wheelTurns=0;
         const sounds=typeof Sfx!=="undefined"?Sfx:null;
         const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;

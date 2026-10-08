@@ -181,9 +181,10 @@ textarea {
     color: var(--primary);
 }
 
+.football-cover { display:block; width:100%; height:140px; object-fit:cover; margin-top:12px; }
 .nav-links {
     display: flex;
-    gap: 30px;
+    gap: 16px;
 
     color: var(--text-secondary);
 }
