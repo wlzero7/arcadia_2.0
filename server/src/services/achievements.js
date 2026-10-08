@@ -1,6 +1,7 @@
 const pool = require("../config/database");
 const { grantXP } = require("./progression");
 const meta = (name, xp, desc) => ({ name, xp, desc });
+const ACHIEVEMENT_AC = 100000; // toda conquista concede 100.000 AC em todas as carteiras
 const ACHIEVEMENTS = {
     first_victory: meta("Primeira Vitória!", 50, "Ganhe sua primeira partida em qualquer jogo ou modo."),
     first_defeat: meta("Primeira Derrota!", 50, "Perca sua primeira partida em qualquer jogo ou modo."),
@@ -51,8 +52,12 @@ function unlockAchievement(userId, key) {
         if (!inserted.changes) return null;
         const xp = ACHIEVEMENTS[key].xp;
         const levelInfo = xp ? grantXP(userId, xp, false) : null;
+        for (const kind of ["solo", "coop", "duel"]) {
+            const wallet = pool.getWalletSync(userId, kind);
+            pool.adjustBalanceSync(wallet.id, ACHIEVEMENT_AC, "payout", "achievement", key);
+        }
         checkProfileAchievements(userId);
-        return { key, ...ACHIEVEMENTS[key], levelInfo };
+        return { key, ...ACHIEVEMENTS[key], ac: ACHIEVEMENT_AC, levelInfo };
     });
 }
 function checkProfileAchievements(userId) {
@@ -83,7 +88,7 @@ function checkProfileAchievements(userId) {
                 previous = unlocked.length;
                 const level = pool.db.get("SELECT level FROM users WHERE id = ?", [userId])?.level || 1;
                 for (const n of [25, 50, 75, 100]) award(`level_${n}_new`, level >= n);
-                const owned = new Set(pool.db.all("SELECT achievement_key FROM user_achievements WHERE user_id = ?", [userId]).map((a) => a.achievement_key));
+                const owned = new Set(pool.db.all("SELECT achievement_key FROM user_achievements WHERE user_id = ?").map((a) => a.achievement_key));
                 const count = Object.keys(ACHIEVEMENTS).filter((key) => owned.has(key)).length;
                 award("conqueror", count >= 25);
                 award("platinum", Object.keys(ACHIEVEMENTS).every((key) => key === "platinum" || owned.has(key)));
