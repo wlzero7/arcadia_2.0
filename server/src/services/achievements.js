@@ -88,7 +88,7 @@ function checkProfileAchievements(userId) {
                 previous = unlocked.length;
                 const level = pool.db.get("SELECT level FROM users WHERE id = ?", [userId])?.level || 1;
                 for (const n of [25, 50, 75, 100]) award(`level_${n}_new`, level >= n);
-                const owned = new Set(pool.db.all("SELECT achievement_key FROM user_achievements WHERE user_id = ?").map((a) => a.achievement_key));
+                const owned = new Set(pool.db.all("SELECT achievement_key FROM user_achievements WHERE user_id = ?", [userId]).map((a) => a.achievement_key));
                 const count = Object.keys(ACHIEVEMENTS).filter((key) => owned.has(key)).length;
                 award("conqueror", count >= 25);
                 award("platinum", Object.keys(ACHIEVEMENTS).every((key) => key === "platinum" || owned.has(key)));
