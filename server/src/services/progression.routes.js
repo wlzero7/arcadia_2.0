@@ -137,12 +137,12 @@ function trackGameActivity(userId, event, now = new Date(), checkAchievements = 
     if (checkAchievements && results.some((row) => row?.completed)) checkProfileAchievements(userId);
 }
 
-function trackLoginActivity(userId, now = new Date()) {
+function trackLoginActivity(userId, now = new Date(), checkAchievements = true) {
     return pool.transactionSync(() => {
         const result = pool.db.run("INSERT OR IGNORE INTO mission_logins (user_id, day) VALUES (?, ?)", [userId, todayKey(now)]);
         if (result.changes) {
-            progressMission(userId, "daily_login", 1, now);
-            progressMission(userId, "weekly_login_4", 1, now);
+            const rows = pool.batchSync([missionStatement(userId, "daily_login", 1, now), missionStatement(userId, "weekly_login_4", 1, now)]);
+            if (checkAchievements && rows.some((row) => row?.completed)) checkProfileAchievements(userId);
         }
     });
 }

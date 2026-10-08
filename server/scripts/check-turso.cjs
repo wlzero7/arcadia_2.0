@@ -51,11 +51,16 @@ async function main() {
         return result;
     }
     const name = "persist_" + crypto.randomBytes(8).toString("hex");
-    const id = measure("Criar conta", () => pool.transactionSync(() => {
-        const id = pool.db.run("INSERT INTO users (username,email,password_hash) VALUES (?,?,?)", [name, name + "@example.test", "disabled-validation-account"]).lastInsertRowid;
-        pool.batchSync(["solo", "duel", "coop"].map((kind) => ({ sql: "INSERT INTO wallets (user_id,kind,balance) VALUES (?,?,1000000)", params: [id, kind] })));
-        return id;
-    }));
+    stage = "Cadastro real da API";
+    const registration = require("../src/routes/auth.routes").stack.find((layer) => layer.route?.path === "/register").route.stack[0].handle;
+    let registered, registrationStatus = 200;
+    const registrationRequests = requests, registrationStart = performance.now();
+    const response = { status(value) { registrationStatus = value; return this; }, cookie() {}, json(value) { registered = value; return this; } };
+    await registration({ body: { username: name, email: name + "@example.test", password: crypto.randomBytes(24).toString("hex") } }, response);
+    assert.equal(registrationStatus, 201);
+    const id = registered.user.id;
+    metrics.push({ teste: stage, ms: Math.round(performance.now() - registrationStart), requisicoes: requests - registrationRequests });
+    pool.db.run("UPDATE users SET password_hash='disabled-validation-account' WHERE id=?", [id]);
     measure("Primeira aposta com conquistas", () => settleInstant(id, "dice", 100, 140, "win", { picked: 6, roll: 6 }));
     measure("Segunda aposta sem recompensa duplicada", () => settleInstant(id, "dice", 100, 100, "push", { picked: 6, roll: 6 }));
     const missions = require("../src/services/progression.routes");

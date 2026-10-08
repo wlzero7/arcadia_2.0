@@ -51,8 +51,9 @@ router.post("/register", async (req, res) => {
 
         const userId = pool.transactionSync(() => {
             const result = pool.db.run("INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)", [normalizedUsername, normalizedEmail, passwordHash]);
-            for (const kind of ["solo", "coop", "duel"]) pool.getWalletSync(result.lastInsertRowid, kind);
-            trackLoginActivity(result.lastInsertRowid);
+            pool.batchSync(["solo", "coop", "duel"].map((kind) => ({ sql: "INSERT INTO wallets (user_id,kind,balance) VALUES (?,?,1000000)", params: [result.lastInsertRowid, kind] })));
+            // A brand-new account has no profile milestone yet; record both login missions.
+            trackLoginActivity(result.lastInsertRowid, new Date(), false);
             return result.lastInsertRowid;
         });
         issueSession(res, { id: userId, username: normalizedUsername, token_version: 0 });

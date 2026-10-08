@@ -7,6 +7,19 @@ Checkpoint mais recente enviado somente na branch de testes: 60fc4b6.
 
 ## Resultado da previa Render
 
+- Homologacao f6d7c18 repetida e APROVADA: dep-db3nli60tbcc7388vtc0.
+  Roleta 16 jogadores 1.955 ms; Blackjack 8 jogadores inicio 1.081 ms,
+  maior acao 2.346 ms; build sem vulnerabilidades. Previa suspensa apos
+  a validacao para nao consumir horas gratuitas nem repetir fixtures.
+- Revisao final do cadastro: tres carteiras e missoes iniciais em lotes;
+  nao consulta conquistas para uma conta que acabou de nascer. O teste
+  remoto passa agora pelo proprio handler de cadastro da API, incluindo
+  bcrypt: 276 ms / 7 requests no computador. Repetir na previa.
+- Auxiliar check-deployment.cjs cria conta descartavel pelo site publicado,
+  compara a conta/carteiras/foto com o Turso e grava cookie somente no
+  arquivo ignorado .env.deployment-probe. Apos restart, verify confirma
+  persistencia e limpa a conta. Nunca imprime senha, cookie ou token.
+
 - Homologacao 60fc4b6 APROVADA: dep-db3ne7ugekts73fg8qug, Live.
   Render Oregon -> Turso Sao Paulo: Roleta 16 jogadores 1.903 ms;
   Blackjack 8 jogadores inicio 1.076 ms, maior acao 2.399 ms.
