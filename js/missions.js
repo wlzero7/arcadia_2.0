@@ -10,7 +10,7 @@
         const period = data.missions.filter((m) => m.cadence === cadence);
         const ready = period.filter((m) => m.completed && !m.claimed);
         $("missionCompleted").textContent = period.filter((m) => m.completed).length + " / " + period.length;
-        $("missionReward").textContent = number(ready.reduce((total, m) => total + m.xp, 0)) + " XP";
+        $("missionReward").textContent = number(ready.reduce((total, m) => total + m.xp, 0)) + " XP + " + number(ready.reduce((total, m) => total + m.ac, 0)) + " AC / carteira";
         const reset = new Date(data.resetsAt[cadence]);
         $("missionReset").textContent = "Renova em " + reset.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
         $("missionPeriodCount").textContent = period.length + " " + (cadence === "daily" ? "di\u00e1rias" : "semanais");
@@ -22,7 +22,7 @@
             card.dataset.state = mission.claimed ? "claimed" : mission.completed ? "ready" : "active";
             const head = document.createElement("div"); head.className = "mission-card-head";
             const category = document.createElement("span"), reward = document.createElement("strong");
-            category.textContent = categories[mission.category] || "Miss\u00e3o"; reward.textContent = "+" + mission.xp + " XP";
+            category.textContent = categories[mission.category] || "Miss\u00e3o"; reward.textContent = "+" + mission.xp + " XP + " + number(mission.ac) + " AC / carteira";
             head.append(category, reward);
             const title = document.createElement("h2"); title.textContent = mission.desc;
             const labels = document.createElement("div"); labels.className = "mission-progress-label";
@@ -32,7 +32,7 @@
             labels.append(count, state);
             const progress = document.createElement("progress"); progress.max = mission.target; progress.value = mission.progress; progress.setAttribute("aria-label", mission.desc);
             const footer = document.createElement("footer"), button = document.createElement("button"); button.type = "button";
-            button.textContent = mission.claimed ? "XP resgatado" : "Resgatar XP";
+            button.textContent = mission.claimed ? "Resgatada" : "Resgatar";
             button.disabled = !mission.completed || mission.claimed || claiming || loading;
             button.addEventListener("click", () => claim(mission));
             const link = document.createElement("a");
@@ -68,7 +68,7 @@
             const expiry = Math.min(...Object.values(data.resetsAt).map((value) => Date.parse(value)));
             resetTimer = setTimeout(load, Math.max(250, expiry - Date.parse(data.serverTime) + 100));
             $("missionLevel").textContent = me.user.level;
-            const max = Math.floor(100 * Math.pow(me.user.level, 1.5));
+            const max = me.user.xpNext;
             $("missionXP").max = max; $("missionXP").value = me.user.xp;
             $("missionXPText").textContent = number(me.user.xp) + " / " + number(max) + " XP";
             $("missionsLogin").classList.add("hidden"); status(""); render();

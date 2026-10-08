@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { invoke, FakeIO } = require("./support.cjs");
+const { invoke, FakeIO, gameBalance } = require("./support.cjs");
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-achievements-"));
 process.env.DB_PATH = path.join(directory, "test.db");
 const pool = require("../src/config/database");
@@ -139,7 +139,7 @@ test("Coop All Win deposits wallet, bets full pot, and awards large-pot contribu
     guest.call("room:join", { code: created.code }); guest.call("room:stake", { amount: 100 });
     pool.db.run("UPDATE wallets SET balance = 10000000 WHERE user_id = ? AND kind = 'coop'", [id]);
     assert.equal(socket.call("room:stake", { amount: 10, allWin: true }).ok, true);
-    assert.equal(pool.getWalletSync(id, "coop").balance, 0);
+    assert.equal(gameBalance(id, "coop"), 0);
     assert.ok(owned(id, "rich_friends")); assert.ok(owned(other, "rich_friends"));
     const result = socket.call("room:play", { wager: 10, allWin: true, choice: { side: "heads" } });
     assert.equal(result.ok, true); assert.equal(result.round.wager, 10000100); assert.ok(owned(id, "all_win"));
@@ -149,11 +149,11 @@ for (const mode of ["solo","duel","coop"]) for (const [key,meta] of Object.entri
         const id = user(), io = new FakeIO();
         const ownedId = pool.db.run("INSERT INTO slots_cards (user_id,card_key,rarity) VALUES (?,?,?)",[id,key,meta.rarity]).lastInsertRowid;
         if (mode === "solo") {
-            const before = pool.getWalletSync(id,"solo").balance;
+            const before = gameBalance(id,"solo");
             const result = invoke(slots,"/play",id,{ wager: 100,trump: key });
             assert.equal(result.status,200);
             const bet = pool.db.get("SELECT * FROM bets WHERE user_id = ? ORDER BY id DESC LIMIT 1",[id]);
-            assert.equal(pool.getWalletSync(id,"solo").balance,before - bet.wager + bet.payout);
+            assert.equal(gameBalance(id,"solo"),before - bet.wager + bet.payout);
             if (key === "allwin") assert.equal(bet.wager,before);
             if (key === "abencoado") assert.deepEqual(result.reels,["7️⃣","7️⃣","7️⃣"]);
         } else if (mode === "coop") {
@@ -170,9 +170,9 @@ for (const mode of ["solo","duel","coop"]) for (const [key,meta] of Object.entri
             const code = socket.call("duel:create").duel.code;
             guest.call("duel:join",{ code }); socket.call("duel:ready"); guest.call("duel:ready"); socket.call("duel:ready");
             socket.call("duel:bid",{ gameIdx: 5,amount: 10 }); socket.call("duel:choose",{ gameIdx: 5 });
-            const before = pool.getWalletSync(id,"duel").balance + pool.getWalletSync(other,"duel").balance;
+            const before = gameBalance(id,"duel") + gameBalance(other,"duel");
             assert.equal(socket.call("duel:play",{ wager: 100,choice: { trump: key } }).ok,true);
-            assert.equal(pool.getWalletSync(id,"duel").balance + pool.getWalletSync(other,"duel").balance,before);
+            assert.equal(gameBalance(id,"duel") + gameBalance(other,"duel"),before);
             if (key === "bloqueador") assert.equal(duels.duels.get(code).turn,"p1");
             socket.call("duel:leave");
         }

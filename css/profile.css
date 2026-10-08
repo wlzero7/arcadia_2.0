@@ -4,6 +4,42 @@
    ================================ */
 
 .profile-main { padding: 2rem 0 4rem; }
+.avatar-dialog { width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; margin: auto; padding: 24px; background: #17171e; color: var(--text); border: 1px solid #41414e; border-radius: 8px; }
+.avatar-dialog::backdrop { background: rgba(0, 0, 0, .75); }
+.avatar-dialog header, .avatar-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.avatar-dialog h2 { font-size: 1.2rem; }
+.avatar-preview { width: 128px; height: 128px; border-radius: 8px; margin: 24px auto; overflow: hidden; background: #272730; font-size: 64px; display: grid; place-items: center; }
+.avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
+.avatar-tabs { display: flex; border-bottom: 1px solid #41414e; margin-bottom: 16px; }
+.avatar-tabs button { flex: 1; padding: 12px; background: none; border: 0; border-bottom: 2px solid transparent; color: #bfc0c7; cursor: pointer; }
+.avatar-tabs button[aria-selected="true"] { border-bottom-color: #22d3ee; color: white; }
+.avatar-options { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+.avatar-options[hidden], #avatarImagePanel[hidden] { display: none; }
+.avatar-options .avatar-option { padding: 0; width: 100%; aspect-ratio: 1; border-radius: 6px; }
+.avatar-option[aria-pressed="true"] { border-color: #22d3ee; background: #253338; }
+#avatarImagePanel { display: grid; gap: 12px; }
+#avatarFile { width: 100%; font-size: 13px; }
+.avatar-file-label { display: flex; align-items: center; gap: 8px; }
+.avatar-file-label svg { width: 20px; }
+#avatarUrl { width: 100%; min-width: 0; }
+#avatarStatus { min-height: 24px; margin: 16px 0; overflow-wrap: anywhere; font-size: 14px; }
+.avatar-dialog footer { justify-content: flex-end; }
+@media (max-width: 500px) {
+    .avatar-dialog { padding: 16px; }
+    .avatar-options { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .profile-id { min-width: 0; gap: 12px; }
+    .profile-id > div:last-child { min-width: 0; }
+    .profile-id h1 { overflow-wrap: anywhere; }
+    .profile-hero .xp-wrap { flex-wrap: wrap; }
+    .profile-hero .xp-bar { width: 100px; }
+    .wallets-row { flex-wrap: wrap; width: 100%; }
+    .wallet-box { flex: 1; min-width: 100px; }
+    .profile-main .bygame-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+    .bygame-row .bg-bar { grid-column: 1 / -1; grid-row: 2; }
+    .bygame-row .bg-net { text-align: right; }
+    .bygame-row span { min-width: 0; overflow-wrap: anywhere; }
+    .stats-row { flex-wrap: wrap; }
+}
 .achieve-copy { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .achieve-copy strong, .achieve-copy small { display: block; }
 .achieve-copy small { margin-top: .3rem; font-size: .8rem; line-height: 1.5; }
@@ -440,6 +476,13 @@
     margin-left: auto;
     color: var(--text-secondary);
     font-size: .8rem;
+    text-align: right;
+}
+.achieve-xp small { display: block; font-size: .65rem; margin-top: 4px; }
+@media (max-width: 500px) {
+    .achieve { flex-wrap: wrap; }
+    .achieve-copy { flex-basis: calc(100% - 48px); }
+    .achieve-xp { margin-left: 40px; text-align: left; }
 }
 
 /* ---------- MISSÕES ---------- */

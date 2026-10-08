@@ -9,6 +9,8 @@ const Rooms = (() => {
     let currentRoom = null;
     let selectedDice = null;
     let selectedSide = null;
+    let visual = null, visualKey = null, lastRoundId = null, animating = false;
+    const LABELS = { dice: "Dados", coinflip: "Cara ou coroa", crash: "Crash", roulette: "Roleta", slots: "Slots" };
 
     // ---------- ELEMENTOS ----------
     const $ = (id) => document.getElementById(id);
@@ -54,7 +56,11 @@ const Rooms = (() => {
             });
             socket.on("room:round", (round) => {
                 renderRound(round);
-                renderGameResult(round);
+                showRound(round);
+                ArcadiaWallet.refresh().catch((error) => toastMsg(error.message));
+            });
+            socket.on("room:live", ({ play, serverTime }) => {
+                if (currentRoom?.activePlay?.id === play.id) visual?.live(play, serverTime);
             });
             socket.on("room:chat", (msg) => {
                 const log = $("chatLog");
@@ -63,7 +69,7 @@ const Rooms = (() => {
                     div.className = "sys";
                     div.textContent = msg.message;
                 } else {
-                    div.innerHTML = `<b>${escapeHtml(msg.username)}:</b> ${escapeHtml(msg.message)}`;
+                    ArcadiaAvatar.chat(div, msg);
                 }
                 log.appendChild(div);
                 log.scrollTop = log.scrollHeight;
@@ -86,6 +92,9 @@ const Rooms = (() => {
         $("mRoomName").textContent = room.name;
         $("mRoomCode").textContent = room.code;
         $("mPot").textContent = ArcadiaWallet.format(room.pot);
+        $("mReserved").textContent = room.activePlay ? "Em jogo: " + ArcadiaWallet.format(room.activePlay.wager) : "";
+        $("playerCount").textContent = room.players.filter((player) => player.online).length + "/" + room.maxPlayers;
+        $("coopGameName").textContent = LABELS[room.game];
         ArcadiaWallet.setPoolBalance(room.pot);
 
         const me = ArcadiaAPI.getUser();
@@ -100,10 +109,24 @@ const Rooms = (() => {
                 <span class="muted">stake: ${ArcadiaWallet.format(p.stake)}</span>
             `;
             list.appendChild(li);
+            const name = li.firstElementChild; name.classList.add("player-identity");
+            const avatar = document.createElement("span"); avatar.className = "player-avatar";
+            ArcadiaAvatar.render(avatar, p.avatar, p.displayName || p.username); name.prepend(avatar);
         });
 
         renderGameControls(room);
         renderRoundHistory(room);
+        if (visualKey !== room.code + ":" + room.game) {
+            visual?.destroy(); visualKey = room.code + ":" + room.game; lastRoundId = null; animating = false;
+            visual = ArcadiaVisuals.create($("coopLiveStage"), room.game);
+        }
+        if (room.activePlay) {
+            visual.live(room.activePlay, room.serverTime);
+            $("coopLiveStatus").textContent = room.activePlay.playerName + " · Em jogo";
+        } else if (room.history.length) showRound(room.history.at(-1));
+        lockControls();
+        $("potTrend").textContent = room.history.length ? ArcadiaVisuals.chart($("potChart"), room.history) : "Sem rodadas ainda";
+        if (!room.history.length) ArcadiaVisuals.chart($("potChart"), []);
 
         // painel de apostas da roleta
         if (room.game === "roulette") {
@@ -245,11 +268,15 @@ const Rooms = (() => {
                 socket.emit("room:play", {
                     wager: Number($("mpBet").value),
                     allWin: ArcadiaWallet.isAllWin("mpBet"),
-                    choice: { autoCashout: Number($("mpTarget").value) || 2 },
+                    choice: { autoCashout: $("mpTarget").value === "" ? null : Number($("mpTarget").value) },
                 }, (r) => {
                     if (!r.ok) toastMsg(r.error);
                 });
             });
+            $("mpTarget").placeholder = "Auto-cashout (opcional)";
+            const cashout = document.createElement("button"); cashout.id = "mpCashout"; cashout.className = "btn btn-outline"; cashout.textContent = "Resgatar";
+            $("mpPlay").after(cashout);
+            cashout.addEventListener("click", () => socket.emit("room:cashout", {}, (result) => { if (!result.ok) toastMsg(result.error); }));
 
         } else if (room.game === "slots") {
             area.innerHTML = `
@@ -288,6 +315,25 @@ const Rooms = (() => {
             (data.inventory || []).forEach((c) => sel.add(new Option(`${c.name} (x${c.qty})`, c.key)));
             if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
         } catch (error) { toastMsg(error.message); }
+    }
+
+    function lockControls() {
+        const active = currentRoom?.activePlay;
+        for (const id of ["mpPlay", "mpSpin", "mpBet", "mpTarget", "mpTrump"]) if ($(id)) $(id).disabled = Boolean(active || animating);
+        for (const id of ["stakeBtn", "withdrawBtn", "stakeAmount"]) $(id).disabled = Boolean(active);
+        if ($("mpCashout")) $("mpCashout").disabled = !active || active.playerId !== ArcadiaAPI.getUser()?.id;
+        document.querySelectorAll("#gameArea [data-rt]").forEach((button) => { button.disabled = Boolean(animating); });
+    }
+    function showRound(round) {
+        if (!visual || lastRoundId === round.id) return;
+        lastRoundId = round.id; animating = true; lockControls();
+        $("coopLiveStatus").textContent = "Rodada de " + round.playerName;
+        const key = visualKey;
+        visual.round(round).then(() => {
+            if (key !== visualKey || lastRoundId !== round.id) return;
+            renderGameResult(round); animating = false; lockControls();
+            $("coopLiveStatus").textContent = "Rodada concluída";
+        });
     }
 
     function renderGameResult(round) {
@@ -340,7 +386,8 @@ const Rooms = (() => {
         const h = $("roundHistory");
         const div = document.createElement("div");
         div.className = "round-item " + round.outcome;
-        const delta = round.outcome === "win" ? `+${ArcadiaWallet.format(round.payout - round.wager)}` : `-${ArcadiaWallet.format(round.wager)}`;
+        const net = round.payout - round.wager;
+        const delta = (net >= 0 ? "+" : "-") + ArcadiaWallet.format(Math.abs(net));
         div.innerHTML = `<span>${escapeHtml(round.playerName)}</span><span>${delta}</span>`;
         h.prepend(div);
     }
@@ -351,7 +398,8 @@ const Rooms = (() => {
         [...room.history].reverse().forEach((r) => {
             const div = document.createElement("div");
             div.className = "round-item " + r.outcome;
-            const delta = r.outcome === "win" ? `+${ArcadiaWallet.format(r.payout - r.wager)}` : `-${ArcadiaWallet.format(r.wager)}`;
+            const net = r.payout - r.wager;
+            const delta = (net >= 0 ? "+" : "-") + ArcadiaWallet.format(Math.abs(net));
             div.innerHTML = `<span>${escapeHtml(r.playerName)}</span><span>${delta}</span>`;
             h.appendChild(div);
         });
@@ -388,6 +436,8 @@ const Rooms = (() => {
         renderRoom(room);
         $("chatLog").innerHTML = "";
         roomModal.classList.add("active");
+        roomModal.hidden = false;
+        document.querySelector(".rooms-grid").hidden = true;
         refreshRoomsList();
     }
 
@@ -395,6 +445,8 @@ const Rooms = (() => {
         socket.emit("room:leave");
         sessionStorage.removeItem("arcadia_room");
         roomModal.classList.remove("active");
+        roomModal.hidden = true; currentRoom = null; visual?.destroy(); visualKey = null;
+        document.querySelector(".rooms-grid").hidden = false;
         refreshRoomsList();
     });
 
@@ -458,6 +510,7 @@ const Rooms = (() => {
 
     // ---------- INIT ----------
     async function init() {
+        window.lucide?.createIcons();
         await ArcadiaAPI.ready;
         if (new URLSearchParams(location.search).get("game") === "coinflip") $("roomGame").value = "coinflip";
         if (ArcadiaAPI.isLoggedIn()) {

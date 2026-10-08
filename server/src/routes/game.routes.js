@@ -132,7 +132,7 @@ router.post("/crash/cashout", authenticate, rounds.handler((req) => crashState(r
 router.get("/leaderboard", async (req, res) => {
     try {
         const rows = await pool.query(
-            `SELECT u.username,
+            `SELECT u.username, u.avatar, u.display_name AS displayName,
                     COALESCE(SUM(b.payout - b.wager), 0) AS net_profit,
                     COUNT(b.id) AS games,
                     SUM(CASE WHEN b.outcome = 'win' THEN 1 ELSE 0 END) AS wins

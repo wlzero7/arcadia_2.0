@@ -15,11 +15,11 @@
     async function loadMe() {
         const data = await ArcadiaAPI.request("/api/auth/me");
         const u = data.user;
-        $("profileAvatar").textContent = u.avatar;
+        ArcadiaAvatar.render($("profileAvatar"), u.avatar, u.displayName);
         $("profileName").textContent = u.displayName;
         $("profileUsername").textContent = "@" + u.username;
         $("profileLevel").textContent = "Lv " + u.level;
-        const xpNext = Math.floor(100 * Math.pow(u.level, 1.5));
+        const xpNext = u.xpNext;
         const pct = Math.min(100, Math.round((u.xp / xpNext) * 100));
         $("xpBar").style.width = pct + "%";
         $("xpText").textContent = `${u.xp} / ${xpNext} XP`;
@@ -31,19 +31,68 @@
     }
     // ---------- EDITAR AVATAR ----------
     function renderAvatarPicker() {
-        const picker = $("avatarPicker");
+        $("avatarPicker").remove();
+        const picker = document.createElement("dialog");
+        picker.id = "avatarDialog"; picker.className = "avatar-dialog";
+        picker.innerHTML = `<header><h2>Foto de perfil</h2><button type="button" class="icon-button" id="avatarClose" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button></header>
+            <div class="avatar-preview" id="avatarPreview"></div>
+            <div class="avatar-tabs" role="tablist"><button role="tab" aria-selected="true" id="avatarIconsTab">Ícones</button><button role="tab" aria-selected="false" id="avatarImageTab">Imagem</button></div>
+            <div id="avatarIcons" class="avatar-options"></div>
+            <div id="avatarImagePanel" hidden><label class="avatar-file-label" for="avatarFile"><i data-lucide="image-plus"></i> Escolher arquivo</label><input id="avatarFile" type="file" accept="image/png,image/jpeg,image/webp">
+            <p class="muted">PNG, JPG ou WebP · até 5 MB · 64 a 4096 px · foto final 256 × 256</p>
+            <label for="avatarUrl">URL da imagem</label><input id="avatarUrl" type="url" placeholder="https://..." autocomplete="off"></div>
+            <p id="avatarStatus" role="status"></p><footer><button class="btn btn-outline" type="button" id="avatarCancel">Cancelar</button><button class="btn btn-primary" type="button" id="avatarSave">Salvar foto</button></footer>`;
+        document.body.appendChild(picker);
+        let selected = null, file = null, mode = "icons";
         AVATARS.forEach((a) => {
             const b = document.createElement("button");
             b.className = "avatar-option";
-            b.textContent = a;
-            b.addEventListener("click", async () => {
-                await ArcadiaAPI.request("/api/auth/profile", { method: "PATCH", body: JSON.stringify({ avatar: a }) });
-                $("profileAvatar").textContent = a;
-                picker.classList.add("hidden");
+            b.textContent = a; b.type = "button"; b.setAttribute("aria-label", a); b.setAttribute("aria-pressed", "false");
+            b.addEventListener("click", () => {
+                selected = a;
+                picker.querySelectorAll(".avatar-option").forEach((option) => option.setAttribute("aria-pressed", String(option === b)));
+                ArcadiaAvatar.render($("avatarPreview"), a);
             });
-            picker.appendChild(b);
+            $("avatarIcons").appendChild(b);
         });
-        $("editAvatarBtn").addEventListener("click", () => picker.classList.toggle("hidden"));
+        const edit = $("editAvatarBtn"); edit.title = "Editar foto de perfil"; edit.setAttribute("aria-label", edit.title); edit.classList.add("icon-button"); edit.innerHTML = '<i data-lucide="pencil"></i>';
+        edit.addEventListener("click", () => {
+            selected = null; file = null; $("avatarFile").value = ""; $("avatarUrl").value = ""; $("avatarStatus").textContent = "";
+            $("avatarPreview").replaceChildren(...Array.from($("profileAvatar").childNodes, (node) => node.cloneNode(true)));
+            picker.showModal();
+        });
+        for (const id of ["avatarClose", "avatarCancel"]) $(id).addEventListener("click", () => picker.close());
+        for (const [id, value] of [["avatarIconsTab", "icons"], ["avatarImageTab", "image"]]) $(id).addEventListener("click", () => {
+            mode = value; $("avatarIcons").hidden = mode !== "icons"; $("avatarImagePanel").hidden = mode !== "image";
+            $("avatarIconsTab").setAttribute("aria-selected", String(mode === "icons")); $("avatarImageTab").setAttribute("aria-selected", String(mode === "image"));
+            $("avatarStatus").textContent = "";
+        });
+        $("avatarFile").addEventListener("change", () => {
+            file = $("avatarFile").files[0]; $("avatarUrl").value = "";
+            if (!file) return;
+            if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024) { file = null; $("avatarStatus").textContent = "Use PNG, JPG ou WebP de até 5 MB."; return; }
+            const reader = new FileReader();
+            reader.onload = () => { const image = new Image(); image.src = reader.result; image.alt = "Prévia da foto"; $("avatarPreview").replaceChildren(image); };
+            reader.readAsDataURL(file);
+        });
+        $("avatarUrl").addEventListener("input", () => { file = null; $("avatarFile").value = ""; });
+        $("avatarSave").addEventListener("click", async () => {
+            const save = $("avatarSave"); save.disabled = true; $("avatarStatus").textContent = "Salvando...";
+            try {
+                if (mode === "icons") {
+                    if (!selected) throw new Error("Escolha um ícone.");
+                    await ArcadiaAPI.request("/api/auth/profile", { method: "PATCH", body: JSON.stringify({ avatar: selected }) });
+                } else if (file) await ArcadiaAPI.request("/api/avatars/upload", { method: "POST", body: file, headers: { "Content-Type": file.type } });
+                else {
+                    const url = $("avatarUrl").value.trim();
+                    if (!url.startsWith("https://")) throw new Error("Escolha um arquivo ou informe uma URL HTTPS.");
+                    await ArcadiaAPI.request("/api/avatars/import", { method: "POST", body: JSON.stringify({ url }) });
+                }
+                await loadMe(); picker.close(); edit.focus();
+            } catch (error) { $("avatarStatus").textContent = error.message; }
+            finally { save.disabled = false; }
+        });
+        window.lucide?.createIcons();
     }
     // ---------- CONQUISTAS ----------
     async function loadAchievements() {
@@ -53,7 +102,7 @@
         data.achievements.forEach((a) => {
             const div = document.createElement("div");
             div.className = "achieve " + (a.unlocked ? "unlocked" : "locked");
-            div.innerHTML = `<span class="achieve-icon">${a.unlocked ? "🏆" : "🔒"}</span><span class="achieve-copy"><strong>${ArcadiaAPI.escapeHtml(a.name)}</strong><small>${ArcadiaAPI.escapeHtml(a.desc)}</small></span><span class="achieve-xp">+${a.xp} XP</span>`;
+            div.innerHTML = `<span class="achieve-icon">${a.unlocked ? "🏆" : "🔒"}</span><span class="achieve-copy"><strong>${ArcadiaAPI.escapeHtml(a.name)}</strong><small>${ArcadiaAPI.escapeHtml(a.desc)}</small></span><span class="achieve-xp">+${a.xp} XP<br>+${Number(a.ac).toLocaleString("pt-BR")} AC<small>Solo · Duelo · Coop</small></span>`;
             list.appendChild(div);
         });
     }
@@ -105,8 +154,10 @@
             const missions = data.missions.filter((m) => m.cadence === cadence);
             element.textContent = `${missions.filter((m) => m.completed).length} de ${missions.length} concluídas`;
         }
-        const reward = data.missions.filter((m) => m.completed && !m.claimed).reduce((sum, m) => sum + m.xp, 0);
-        $("missionsReward").textContent = `${reward.toLocaleString("pt-BR")} XP para resgatar`;
+        const ready = data.missions.filter((m) => m.completed && !m.claimed);
+        const reward = ready.reduce((sum, m) => sum + m.xp, 0);
+        const ac = ready.reduce((sum, m) => sum + m.ac, 0);
+        $("missionsReward").textContent = `${reward.toLocaleString("pt-BR")} XP + ${ac.toLocaleString("pt-BR")} AC por carteira`;
     }
     // ---------- ESTATÍSTICAS COMPLETAS (v0.9.3) ----------
     const GAME_ICON = {

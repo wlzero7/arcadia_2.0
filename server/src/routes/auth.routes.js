@@ -7,6 +7,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const pool = require("../config/database");
 const { trackLoginActivity } = require("../services/progression.routes");
+const { xpForNextLevel } = require("../services/progression");
 const { authenticate, issueSession, cookieOptions, verifySession, disconnectUserSockets } = require("../middleware/auth");
 const router = express.Router();
 
@@ -120,6 +121,7 @@ router.post("/login", async (req, res) => {
 
 router.get("/me", authenticate, async (req, res) => {
     try {
+        trackLoginActivity(req.user.id);
         require("../services/achievements").checkProfileAchievements(req.user.id);
         const user = await pool.get(
             `SELECT id, username, email, created_at, display_name, avatar, xp, level FROM users WHERE id = ?`,
@@ -135,7 +137,6 @@ router.get("/me", authenticate, async (req, res) => {
             [req.user.id]
         );
 
-        trackLoginActivity(user.id);
         if (req.headers.authorization) issueSession(res, req.user);
         return res.status(200).json({
             status: "success",
@@ -148,6 +149,7 @@ router.get("/me", authenticate, async (req, res) => {
                 createdAt: user.created_at,
                 xp: user.xp || 0,
                 level: user.level || 1,
+                xpNext: xpForNextLevel(user.level || 1),
             },
             wallet: { balance: (wallets.rows.find((w) => w.kind === "solo") || {}).balance || 0 },
             wallets: Object.fromEntries(wallets.rows.map((w) => [w.kind, w.balance])),
@@ -164,20 +166,24 @@ router.get("/me", authenticate, async (req, res) => {
 router.patch("/profile", authenticate, async (req, res) => {
     try {
         const displayName = req.body.displayName ? String(req.body.displayName).trim().slice(0, 30) : null;
-        const avatar = req.body.avatar ? String(req.body.avatar).slice(0, 8) : null;
+        const avatar = req.body.avatar || null;
+        if (avatar && !require("../services/avatars").AVATARS.includes(avatar)) return res.status(400).json({ message: "Escolha um icone valido ou envie uma imagem." });
 
         if (displayName) {
             await pool.run("UPDATE users SET display_name = ? WHERE id = ?", [displayName, req.user.id]);
         }
         if (avatar) {
-            await pool.run("UPDATE users SET avatar = ? WHERE id = ?", [avatar, req.user.id]);
+            pool.transactionSync(() => {
+                pool.db.run("UPDATE users SET avatar = ? WHERE id = ?", [avatar, req.user.id]);
+                pool.db.run("DELETE FROM avatar_images WHERE user_id = ?", [req.user.id]);
+            });
         }
 
         const user = await pool.get("SELECT id, username, display_name, avatar, level, xp FROM users WHERE id = ?", [req.user.id]);
         return res.json({
             status: "success",
             message: "Perfil atualizado!",
-            user: { id: user.id, username: user.username, displayName: user.display_name || user.username, avatar: user.avatar, level: user.level, xp: user.xp },
+            user: { id: user.id, username: user.username, displayName: user.display_name || user.username, avatar: user.avatar, level: user.level, xp: user.xp, xpNext: xpForNextLevel(user.level) },
         });
     } catch (error) {
         return res.status(500).json({ status: "error", message: "Erro ao atualizar perfil." });

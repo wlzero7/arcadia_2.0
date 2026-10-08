@@ -3,7 +3,9 @@
 // Mission periods use UTC consistently across routes and game events.
 // ========================================
 
-const { ACHIEVEMENTS, unlockAchievement, checkProfileAchievements, checkGameAchievements } = require("./achievements");
+const pool = require("../config/database");
+const { grantXP } = require("./progression");
+const { ACHIEVEMENTS, ACHIEVEMENT_AC, unlockAchievement, checkProfileAchievements, checkGameAchievements } = require("./achievements");
 // ========================================
 // MISSÕES — diárias e semanais (chaves genéricas)
 // ========================================
@@ -52,10 +54,7 @@ for (const m of Object.values(MISSIONS)) {
 }
 
 function grantACAllWallets(userId, amount, refType, refId) {
-    for (const kind of ["solo", "coop", "duel"]) {
-        const wallet = pool.getWalletSync(userId, kind);
-        pool.adjustBalanceSync(wallet.id, amount, "daily_bonus", refType, refId);
-    }
+    pool.creditAllWalletsSync(userId, [{ amount, kind: "daily_bonus", refType, refId }]);
 }
 
 // ========================================
@@ -84,36 +83,30 @@ function resets(now = new Date()) {
 }
 
 // Incrementa progresso de missões; marca completas
-function progressMission(userId, key, amount = 1, now = new Date()) {
+function missionStatement(userId, key, amount, now, onlyNewGame = false) {
     const m = Object.hasOwn(MISSIONS, key) && MISSIONS[key];
     if (!m || !Number.isSafeInteger(amount) || amount <= 0) return;
     const period = m.period === "weekly" ? weekKey(now) : todayKey(now);
 
-    pool.db.run(
-        `INSERT INTO user_missions (user_id, mission_key, period, progress, completed)
-         VALUES (?, ?, ?, 0, 0)
-         ON CONFLICT(user_id, mission_key, period) DO NOTHING`,
-        [userId, key, period]
-    );
-
-    const row = pool.db.get(
-        "SELECT progress, completed FROM user_missions WHERE user_id = ? AND mission_key = ? AND period = ?",
-        [userId, key, period]
-    );
-    if (!row || row.completed) return;
-    const progress = row.progress + amount;
-    const completed = progress >= m.target ? 1 : 0;
-
-    pool.db.run(
-        "UPDATE user_missions SET progress = ?, completed = ? WHERE user_id = ? AND mission_key = ? AND period = ?",
-        [Math.min(progress, m.target), completed, userId, key, period]
-    );
-    if (completed) checkProfileAchievements(userId);
+    return { method: "get", sql: `INSERT INTO user_missions (user_id, mission_key, period, progress, completed)
+        SELECT ?, ?, ?, MIN(?, ?), ? >= ? WHERE ${onlyNewGame ? "changes() > 0" : "1"}
+        ON CONFLICT(user_id, mission_key, period) DO UPDATE SET
+            progress = MIN(user_missions.progress + excluded.progress, ?),
+            completed = user_missions.progress + excluded.progress >= ?
+        WHERE user_missions.completed = 0
+        RETURNING completed`, params: [userId, key, period, amount, m.target, amount, m.target, m.target, m.target] };
+}
+function progressMission(userId, key, amount = 1, now = new Date()) {
+    const statement = missionStatement(userId, key, amount, now);
+    if (!statement) return;
+    const row = pool.db.get(statement.sql, statement.params);
+    if (row?.completed) checkProfileAchievements(userId);
 }
 
 // Hooks de jogo
-function trackGameActivity(userId, { game, outcome, wager, detail = {} }, now = new Date()) {
-    const add = (key, amount = 1) => progressMission(userId, key, amount, now);
+function trackGameActivity(userId, { game, outcome, wager, detail = {} }, now = new Date(), checkAchievements = true) {
+    const updates = [];
+    const add = (key, amount = 1) => { const statement = missionStatement(userId, key, amount, now); if (statement) updates.push(statement); };
     const mode = game === "duel" ? "duel" : detail.roomCode || detail.tableCode ? "coop" : "solo";
     const playedGame = game === "duel" ? detail.game : game;
     add("daily_play_10");
@@ -124,27 +117,21 @@ function trackGameActivity(userId, { game, outcome, wager, detail = {} }, now = 
     }
     add("daily_bet_500", wager || 0);
     add("weekly_bet_5000", wager || 0);
-    if (playedGame === "mines") add("daily_mines_1");
+    const gameMissions = { mines: "daily_mines_1", coinflip: "daily_coinflip_5", dice: "daily_dice_5", blackjack: "daily_blackjack_3", "blackjack-mp": "daily_blackjack_mp_3", roulette: "daily_roulette_3", slots: "daily_slots_3", crash: "daily_crash_3", plinko: "daily_plinko_3" };
+    if (Object.hasOwn(gameMissions, playedGame)) add(gameMissions[playedGame]);
+    updates.push({ sql: "INSERT OR IGNORE INTO mission_games (user_id, day, game) VALUES (?, ?, ?)", params: [userId, todayKey(now), playedGame] });
+    updates.push(missionStatement(userId, "daily_variety_3", 1, now, true));
     if (playedGame === "coinflip") {
-        add("daily_coinflip_5");
         add("weekly_coinflip_30");
     }
     if (playedGame === "coinflip" && outcome === "win") add("daily_coinflip_win_2");
-    if (playedGame === "dice") add("daily_dice_5");
-    if (playedGame === "blackjack") add("daily_blackjack_3");
-    if (playedGame === "roulette") add("daily_roulette_3");
-    if (playedGame === "slots") add("daily_slots_3");
-    if (playedGame === "crash") add("daily_crash_3");
-    if (playedGame === "plinko") add("daily_plinko_3");
     if (wager === 100) add("daily_bet_100_twice");
     if ((wager || 0) >= 1000) add("daily_high_bet");
-    // Jogos diferentes são deduplicados por dia (mission_games)
-    const varietyResult = pool.db.run("INSERT OR IGNORE INTO mission_games (user_id, day, game) VALUES (?, ?, ?)", [userId, todayKey(now), playedGame]);
-    if (varietyResult.changes) add("daily_variety_3");
     if (mode === "coop") add("daily_coop_3");
-    if (playedGame === "blackjack-mp") add("daily_blackjack_mp_3");
     if (playedGame === "blackjack-mp" && outcome === "win") add("daily_blackjack_mp_win");
     if (mode === "duel") add("daily_duel_3");
+    const results = pool.batchSync(updates);
+    if (checkAchievements && results.some((row) => row?.completed)) checkProfileAchievements(userId);
 }
 
 function trackLoginActivity(userId, now = new Date()) {
@@ -178,6 +165,7 @@ const router = express.Router();
 
 // GET /api/progression/achievements
 router.get("/achievements", authenticate, (req, res) => {
+    checkProfileAchievements(req.user.id);
     const map = Object.fromEntries(
         pool.db.all("SELECT achievement_key, unlocked_at FROM user_achievements WHERE user_id = ?", [req.user.id])
             .map((a) => [a.achievement_key, a.unlocked_at])
@@ -187,6 +175,7 @@ router.get("/achievements", authenticate, (req, res) => {
         achievements: Object.entries(ACHIEVEMENTS).map(([key, meta]) => ({
             key,
             ...meta,
+            ac: ACHIEVEMENT_AC,
             unlocked: !!map[key],
             unlockedAt: map[key] || null,
         })),

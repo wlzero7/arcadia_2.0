@@ -10,12 +10,15 @@ const { Database } = require("node-sqlite3-wasm");
 const DB_PATH =
     process.env.DB_PATH || "./data/arcadia.db";
 
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-
-const db = new Database(DB_PATH);
+const remote = Boolean(process.env.TURSO_DATABASE_URL);
+if (process.env.REQUIRE_PERSISTENT_DB === "1" && !remote) {
+    throw new Error("Banco persistente obrigatorio: configure TURSO_DATABASE_URL e TURSO_AUTH_TOKEN. O SQLite descartavel nao sera usado.");
+}
+if (!remote) fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+const db = remote ? require("./turso").createTursoDatabase(process.env.TURSO_DATABASE_URL, process.env.TURSO_AUTH_TOKEN) : new Database(DB_PATH);
 
 // WAL = leituras concorrentes + durabilidade
-db.exec("PRAGMA journal_mode = WAL;");
+if (!remote) db.exec("PRAGMA journal_mode = WAL;");
 db.exec("PRAGMA foreign_keys = ON;");
 
 // ========================================
@@ -184,6 +187,11 @@ CREATE TABLE IF NOT EXISTS mission_games (
 
 CREATE INDEX IF NOT EXISTS idx_tx_wallet ON transactions(wallet_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_bets_user ON bets(user_id, created_at);
+CREATE TABLE IF NOT EXISTS avatar_images (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    image BLOB NOT NULL,
+    version TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_rooms_code ON rooms(code);
 CREATE INDEX IF NOT EXISTS idx_slots_cards_user ON slots_cards(user_id);
 `;
@@ -194,6 +202,7 @@ for (const [table, column] of [
     ["room_members", "stake INTEGER NOT NULL DEFAULT 0"],
     ["room_pot", "pending_bets TEXT NOT NULL DEFAULT '[]'"],
     ["room_pot", "history TEXT NOT NULL DEFAULT '[]'"],
+    ["room_pot", "active_play TEXT NOT NULL DEFAULT 'null'"],
     ["users", "token_version INTEGER NOT NULL DEFAULT 0"],
 ]) {
     const name = column.split(" ")[0];
@@ -206,8 +215,9 @@ for (const [table, column] of [
 // MIGRAÇÕES (bancos criados antes da v0.9)
 // ========================================
 
+const userColumns = new Set(db.all("PRAGMA table_info(users)").map((row) => row.name));
 for (const col of ["display_name TEXT", "avatar TEXT DEFAULT '🎰'", "xp INTEGER NOT NULL DEFAULT 0", "level INTEGER NOT NULL DEFAULT 1"]) {
-    try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch (_) {}
+    if (!userColumns.has(col.split(" ")[0])) db.exec(`ALTER TABLE users ADD COLUMN ${col}`);
 }
 
 // wallets: adiciona kind e recria se veio do schema antigo (user_id UNIQUE)
@@ -308,6 +318,43 @@ async function transaction(fn) {
     return transactionSync(fn);
 }
 
+// Independent statements share one remote request, inside the same transaction.
+function batchSync(statements) {
+    if (!statements.length) return [];
+    for (const statement of statements) {
+        if (!["get", "all", "run"].includes(statement.method || "run")) throw new Error("Invalid batch method.");
+    }
+    return transactionSync(() => db.batch ? db.batch(statements) : statements.map(({ sql, params = [], method = "run" }) => db[method](sql, params)));
+}
+
+function creditAllWalletsSync(userId, rewards) {
+    if (!rewards.length) return;
+    const total = rewards.reduce((sum, reward) => {
+        if (!Number.isSafeInteger(reward.amount) || reward.amount <= 0 || !["payout", "daily_bonus"].includes(reward.kind)) throw new Error("Recompensa invalida.");
+        return sum + reward.amount;
+    }, 0);
+    if (!Number.isSafeInteger(total)) throw new Error("Recompensa fora do limite permitido.");
+    return transactionSync(() => {
+        const result = batchSync([
+            ...["solo", "coop", "duel"].map((kind) => ({ sql: "INSERT OR IGNORE INTO wallets (user_id, kind, balance) VALUES (?, ?, 1000000)", params: [userId, kind] })),
+            { method: "all", sql: "SELECT id, balance FROM wallets WHERE user_id = ?", params: [userId] },
+        ]);
+        const wallets = result.at(-1);
+        const statements = [];
+        for (const wallet of wallets) {
+            const balance = wallet.balance + total;
+            if (!Number.isSafeInteger(balance)) throw new Error("Saldo fora do limite permitido.");
+            statements.push({ sql: "UPDATE wallets SET balance = ?, updated_at = datetime('now') WHERE id = ?", params: [balance, wallet.id] });
+            let after = wallet.balance;
+            for (const reward of rewards) {
+                after += reward.amount;
+                statements.push({ sql: "INSERT INTO transactions (wallet_id,kind,amount,balance_after,ref_type,ref_id) VALUES (?,?,?,?,?,?)", params: [wallet.id, reward.kind, reward.amount, after, reward.refType, reward.refId] });
+            }
+        }
+        batchSync(statements);
+    });
+}
+
 // ========================================
 // CARTEIRA: débito/crédito com transação + log
 // ========================================
@@ -368,7 +415,10 @@ module.exports = {
     run,
     transaction,
     transactionSync,
+    batchSync,
+    creditAllWalletsSync,
     adjustBalance,
     adjustBalanceSync,
-    DB_PATH,
+    DB_PATH: remote ? "Turso (libSQL persistente)" : DB_PATH,
+    remote,
 };

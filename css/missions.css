@@ -4,7 +4,8 @@
 .missions-eyebrow { color: #71d6bd; font-size: 12px; margin-bottom: 8px; }
 .missions-refresh { width: 42px; height: 42px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); font-size: 24px; }
 .mission-overview { display: grid; grid-template-columns: minmax(200px, 1.5fr) 1fr 1fr; gap: 32px; padding: 24px 0; border-block: 1px solid var(--border); }
-.mission-overview > div { display: grid; align-content: start; gap: 8px; }
+.mission-overview > div { display: grid; align-content: start; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.mission-overview #missionReward { font-size: 18px; line-height: 1.5; }
 .mission-overview strong { font-size: 26px; }
 .mission-overview > div:last-child strong { color: #f9dc7c; }
 .mission-overview .muted { font-size: 14px; }
@@ -24,9 +25,9 @@
 .mission-card { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 20px; background: #141b1b; }
 .mission-card[data-state="ready"] { border-color: #5f9d85; background: #17281f; }
 .mission-card[data-state="claimed"] { background: #12171b; }
-.mission-card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
+.mission-card-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
 .mission-card-head span { color: #97b2ac; font-size: 12px; }
-.mission-card-head strong { color: #f9dc7c; font-size: 14px; white-space: nowrap; }
+.mission-card-head strong { color: #f9dc7c; font-size: 14px; overflow-wrap: anywhere; }
 .mission-card h2 { font-size: 16px; line-height: 1.5; min-height: 48px; margin-bottom: 12px; letter-spacing: 0; overflow-wrap: anywhere; }
 .mission-progress-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; font-size: 12px; color: var(--text-secondary); }
 progress { appearance: none; border: 0; border-radius: 3px; overflow: hidden; background: #293536; accent-color: #71d6bd; }

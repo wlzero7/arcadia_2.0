@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { FakeIO } = require("./support.cjs");
+const { FakeIO, gameBalance } = require("./support.cjs");
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-duel-live-"));
 process.env.DB_PATH = path.join(directory, "test.db");
 const pool = require("../src/config/database");
@@ -26,7 +26,7 @@ function room(game) {
     p1.call("duel:bid", { gameIdx, amount: 10 });
     assert.equal(p1.call("duel:choose", { gameIdx }).ok, true);
     const duel = realtime.duels.get(created.code);
-    const total = () => pool.getWalletSync(a, "duel").balance + pool.getWalletSync(b, "duel").balance;
+    const total = () => gameBalance(a, "duel") + gameBalance(b, "duel");
     return { a, b, io, p1, p2, duel, total, before: total() };
 }
 function publicState(io) { return io.messages.filter((m) => m.event === "duel:state").at(-1).data; }

@@ -61,6 +61,7 @@
                     </section>
                 </section>
             `;
+            ArcadiaAvatar.render(box.querySelector(".avatar"), p.avatar, p.displayName);
         } catch (err) {
             box.innerHTML = `<div class="empty-state">
                 <div class="empty-icon">👻</div>

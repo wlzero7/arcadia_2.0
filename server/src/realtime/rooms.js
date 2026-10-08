@@ -7,12 +7,21 @@ const roulette = require("../services/roulette");
 const { allocateShares } = require("../services/roomShares");
 const { unlockAchievement, trackRoomActivity } = require("../services/progression.routes");
 const rooms = new Map();
+const { identity } = require("../services/avatars");
 const MULTI_GAMES = { dice: {}, coinflip: {}, crash: {}, roulette: {}, slots: {} };
+
+function crashMultiplier(play, now = Date.now()) { return Math.floor(Math.exp(Math.max(0, now - play.startedAt) / 1000 * .16) * 100) / 100; }
+function publicPlay(play) {
+    if (!play) return null;
+    return { id: play.id, type: "crash", playerId: play.playerId, playerName: play.playerName, wager: play.wager,
+        startedAt: play.startedAt, autoCashout: play.autoCashout, multiplier: crashMultiplier(play) };
+}
 
 function roomSummary(room) {
     return { code: room.code, name: room.name, hostId: room.hostId, game: room.game,
         minBet: room.minBet, maxBet: room.maxBet, maxPlayers: room.maxPlayers, pot: room.pot,
-        players: [...room.members].map(([id, m]) => ({ id, username: m.username, stake: room.stakes.get(id) || 0, online: m.socketIds.size > 0 })),
+        players: [...room.members].map(([id, m]) => ({ id, username: m.username, displayName: m.displayName || m.username, avatar: m.avatar, stake: room.stakes.get(id) || 0, online: m.socketIds.size > 0 })),
+        activePlay: publicPlay(room.activePlay), serverTime: Date.now(),
         history: room.history.slice(-20), rBets: room.rBets, rLast: room.rLast };
 }
 function persistRoomMember(room, userId) {
@@ -30,18 +39,19 @@ function persistRoomCreate(room) {
 }
 function persistRoom(room) {
     pool.db.run("UPDATE rooms SET host_id = ? WHERE id = ?", [room.hostId, room.id]);
-    pool.db.run("UPDATE room_pot SET balance = ?, pending_bets = ?, history = ? WHERE room_id = ?",
-        [room.pot, JSON.stringify(room.rBets), JSON.stringify(room.history), room.id]);
+    pool.db.run("UPDATE room_pot SET balance = ?, pending_bets = ?, history = ?, active_play = ? WHERE room_id = ?",
+        [room.pot, JSON.stringify(room.rBets), JSON.stringify(room.history), JSON.stringify(room.activePlay || null), room.id]);
     for (const id of room.members.keys()) persistRoomMember(room, id);
 }
 function hydrateRooms() {
-    const rows = pool.db.all("SELECT r.*, p.balance AS pot, p.pending_bets, p.history FROM rooms r JOIN room_pot p ON p.room_id = r.id WHERE r.status IN ('lobby','playing')");
+    const rows = pool.db.all("SELECT r.*, p.balance AS pot, p.pending_bets, p.history, p.active_play FROM rooms r JOIN room_pot p ON p.room_id = r.id WHERE r.status IN ('lobby','playing')");
     for (const row of rows) {
         const room = { id: row.id, code: row.code, name: row.name, hostId: row.host_id, game: row.game,
             minBet: row.min_bet, maxBet: row.max_bet, maxPlayers: row.max_players, pot: row.pot,
-            members: new Map(), stakes: new Map(), history: JSON.parse(row.history), rBets: JSON.parse(row.pending_bets), rLast: null, createdAt: Date.now() };
-        for (const m of pool.db.all("SELECT rm.*, u.username FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE room_id = ?", [row.id])) {
-            room.members.set(m.user_id, { username: m.username, socketIds: new Set(), lastSeen: Date.now() });
+            members: new Map(), stakes: new Map(), history: JSON.parse(row.history), rBets: JSON.parse(row.pending_bets), activePlay: JSON.parse(row.active_play), rLast: null, createdAt: Date.now() };
+        room.rLast = room.history.findLast((entry) => entry.type === "roulette") || null;
+        for (const m of pool.db.all("SELECT rm.*, u.username, u.avatar, u.display_name FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE room_id = ?", [row.id])) {
+            room.members.set(m.user_id, { username: m.username, avatar: m.avatar, displayName: m.display_name, socketIds: new Set(), lastSeen: Date.now() });
             room.stakes.set(m.user_id, m.stake);
         }
         // Recover legacy contributions using the transaction ledger, including members removed on disconnect.
@@ -77,6 +87,43 @@ function consumeTrump(userId, trump, pot, amount) {
 }
 function setupMultiplayer(io) {
     hydrateRooms();
+    function settleCrash(room, manual = false) {
+        const play = room.activePlay;
+        if (!play) throw new Error("Nenhuma rodada ativa.");
+        const current = crashMultiplier(play);
+        const autoWon = play.autoCashout != null && play.crashPoint >= play.autoCashout && current >= play.autoCashout;
+        const won = autoWon || (manual && current < play.crashPoint);
+        const multiplier = won ? autoWon ? play.autoCashout : current : 0;
+        const entry = mutate(room, () => {
+            const payout = won ? Math.floor(play.wager * multiplier) : 0;
+            room.pot += payout;
+            if (!Number.isSafeInteger(room.pot)) throw new Error("Saldo fora do limite permitido.");
+            room.stakes = allocateShares(room.stakes, room.pot);
+            const outcome = payout > play.wager ? "win" : payout === play.wager ? "push" : "loss";
+            const result = { id: play.id, type: "crash", playerId: play.playerId, playerName: play.playerName,
+                wager: play.wager, payout, multiplier, outcome, crashPoint: play.crashPoint, autoCashout: play.autoCashout, startedAt: play.startedAt, at: Date.now(), potAfter: room.pot };
+            recordBet(play.playerId, "crash", play.wager, payout, outcome, { ...result, allWin: play.allWin, cashout: multiplier, roomCode: room.code });
+            trackRoomActivity(play.playerId, room.code);
+            room.activePlay = null; room.history.push(result);
+            if (room.history.length > 100) room.history.shift();
+            if (room.pot >= 10000000) for (const [id, stake] of room.stakes) if (stake > 0) unlockAchievement(id, "rich_friends");
+            return result;
+        });
+        io.to("room:" + room.code).emit("room:round", entry);
+        io.to("room:" + room.code).emit("room:update", roomSummary(room));
+        return entry;
+    }
+    const timer = setInterval(() => {
+        for (const room of rooms.values()) if (room.activePlay) {
+            try {
+                const play = room.activePlay;
+                const end = Math.min(play.crashPoint, play.autoCashout ?? Infinity);
+                if (crashMultiplier(play) >= end) settleCrash(room);
+                else io.to("room:" + room.code).emit("room:live", { play: publicPlay(play), serverTime: Date.now() });
+            } catch (error) { console.error("Coop Crash:", error.message); }
+        }
+    }, 200);
+    timer.unref();
     io.on("connection", (socket) => {
         socket.data.roomCode = null;
         function current() {
@@ -100,7 +147,7 @@ function setupMultiplayer(io) {
                 member.socketIds.delete(socket.id);
                 member.lastSeen = Date.now();
                 // Funded members stay in the roster while offline so their shares remain withdrawable.
-                if (!member.socketIds.size && !(room.stakes.get(socket.userId) > 0) && !room.rBets.length) {
+                if (!member.socketIds.size && !(room.stakes.get(socket.userId) > 0) && !room.rBets.length && !room.activePlay) {
                     room.members.delete(socket.userId);
                     room.stakes.delete(socket.userId);
                     pool.db.run("DELETE FROM room_members WHERE room_id = ? AND user_id = ?", [room.id, socket.userId]);
@@ -108,7 +155,7 @@ function setupMultiplayer(io) {
                 if (room.hostId === socket.userId && !member.socketIds.size) {
                     room.hostId = [...room.members].find(([, m]) => m.socketIds.size)?.[0] || [...room.members.keys()][0] || socket.userId;
                 }
-                if (!room.members.size && room.pot === 0 && !room.rBets.length) {
+                if (!room.members.size && room.pot === 0 && !room.rBets.length && !room.activePlay) {
                     pool.db.run("UPDATE rooms SET status = 'closed' WHERE id = ?", [room.id]);
                     rooms.delete(room.code);
                 } else pool.transactionSync(() => persistRoom(room));
@@ -128,7 +175,7 @@ function setupMultiplayer(io) {
             const game = data.game || "dice";
             if (!Object.hasOwn(MULTI_GAMES, game)) throw new Error("Jogo inválido.");
             const room = { code: roomCode, name: String(data.name || "Sala de " + socket.username).slice(0, 40), hostId: socket.userId, game, minBet, maxBet, maxPlayers,
-                members: new Map([[socket.userId, { username: socket.username, socketIds: new Set([socket.id]), lastSeen: Date.now() }]]),
+                members: new Map([[socket.userId, { ...identity(socket.userId), socketIds: new Set([socket.id]), lastSeen: Date.now() }]]),
                 stakes: new Map(), pot: 0, history: [], rBets: [], rLast: null, createdAt: Date.now() };
             persistRoomCreate(room);
             rooms.set(roomCode, room);
@@ -143,7 +190,8 @@ function setupMultiplayer(io) {
             if (!room.members.has(socket.userId) && online >= room.maxPlayers) throw new Error("Sala cheia.");
             if (socket.data.roomCode !== room.code) leave();
             mutate(room, () => {
-                if (!room.members.has(socket.userId)) room.members.set(socket.userId, { username: socket.username, socketIds: new Set(), lastSeen: Date.now() });
+                if (!room.members.has(socket.userId)) room.members.set(socket.userId, { ...identity(socket.userId), socketIds: new Set(), lastSeen: Date.now() });
+                else Object.assign(room.members.get(socket.userId), identity(socket.userId));
                 room.members.get(socket.userId).socketIds.add(socket.id);
             });
             socket.data.roomCode = room.code;
@@ -155,7 +203,7 @@ function setupMultiplayer(io) {
         on("room:stake", (data) => {
             const room = current();
             mutate(room, () => {
-                if (room.rBets.length) throw new Error("Finalize o giro antes de depositar.");
+                if (room.rBets.length || room.activePlay) throw new Error("Finalize a rodada antes de depositar.");
                 const wallet = pool.getWalletSync(socket.userId, "coop");
                 const amount = wager(data.allWin === true ? wallet.balance : data.amount, 1, data.allWin === true ? Number.MAX_SAFE_INTEGER : 1000000);
                 pool.adjustBalanceSync(wallet.id, -amount, "room_stake", "room", room.code);
@@ -170,7 +218,7 @@ function setupMultiplayer(io) {
         on("room:withdraw", (data) => {
             const room = current();
             mutate(room, () => {
-                if (room.rBets.length) throw new Error("Finalize o giro antes de sacar.");
+                if (room.rBets.length || room.activePlay) throw new Error("Finalize a rodada antes de sacar.");
                 const myStake = room.stakes.get(socket.userId) || 0;
                 const amount = wager(data.amount ?? myStake, 1, Number.MAX_SAFE_INTEGER);
                 if (amount > myStake || amount > room.pot) throw new Error("Valor maior que sua participação no pote.");
@@ -191,6 +239,7 @@ function setupMultiplayer(io) {
         on("room:play", (data) => {
             const room = current();
             const entry = mutate(room, () => {
+                if (room.activePlay) throw new Error("Aguarde a rodada atual.");
                 if (room.game === "roulette") throw new Error("Use as apostas da roleta.");
                 const useAllWin = data.allWin === true || (room.game === "slots" && data.choice?.trump === "allwin");
                 const amount = wager(useAllWin ? room.pot : data.wager, useAllWin ? 1 : room.minBet, useAllWin ? Number.MAX_SAFE_INTEGER : room.maxBet);
@@ -203,11 +252,12 @@ function setupMultiplayer(io) {
                     const spin = resolveSpin({ wager: amount, trump });
                     result = { ...spin, multiplier: spin.mult, wager: amount * spin.lossMultiplier };
                 } else if (room.game === "crash") {
-                    const target = Number(data.choice?.autoCashout ?? 2);
-                    if (!Number.isFinite(target) || target < 1.01 || target > 100) throw new Error("Cashout inválido.");
+                    const target = data.choice?.autoCashout == null ? null : Number(data.choice.autoCashout);
+                    if (target != null && (!Number.isFinite(target) || target < 1.01 || target > 100)) throw new Error("Cashout inválido.");
                     const crashPoint = Math.max(1, Math.floor(1 / (1 - random()) * 100) / 100);
-                    const win = crashPoint >= target;
-                    result = { wager: amount, crashPoint, autoCashout: target, payout: win ? Math.floor(amount * target) : 0, multiplier: win ? target : 0 };
+                    room.activePlay = { id: code(12), playerId: socket.userId, playerName: socket.username, startedAt: Date.now(), wager: amount, autoCashout: target, crashPoint, allWin };
+                    room.pot -= amount;
+                    return null;
                 } else result = { ...GAMES[room.game].play(amount, data.choice), wager: amount };
                 result.type = room.game;
                 result.outcome = result.payout > result.wager ? "win" : result.payout === result.wager ? "push" : "loss";
@@ -225,9 +275,14 @@ function setupMultiplayer(io) {
                 Object.assign(result, result.detail);
                 return addHistory(room, result);
             });
-            io.to("room:" + room.code).emit("room:round", entry);
+            if (entry) io.to("room:" + room.code).emit("room:round", entry);
             broadcast(room);
-            return { round: entry };
+            return { round: entry, activePlay: publicPlay(room.activePlay) };
+        });
+        on("room:cashout", () => {
+            const room = current();
+            if (room.activePlay?.playerId !== socket.userId) throw new Error("Somente quem iniciou a rodada pode sacar.");
+            return { round: settleCrash(room, true) };
         });
         on("room:rbet", (data) => {
             const room = current();
@@ -268,12 +323,12 @@ function setupMultiplayer(io) {
         on("room:chat", (data) => {
             const room = current();
             const message = String(data.message || "").trim().slice(0, 240);
-            if (message) io.to("room:" + room.code).emit("room:chat", { username: socket.username, message, at: Date.now() });
+            if (message) io.to("room:" + room.code).emit("room:chat", { ...identity(socket.userId), message, at: Date.now() });
             return {};
         });
         on("rooms:list", () => ({ rooms: [...rooms.values()].map(roomSummary) }));
         socket.on("disconnect", () => { try { leave(); } catch (err) { console.error("Room disconnect:", err.message); } });
     });
-    return { rooms, MULTI_GAMES };
+    return { rooms, MULTI_GAMES, close: () => clearInterval(timer) };
 }
 module.exports = { setupMultiplayer, rooms, persistRoomCreate, persistRoomMember, hydrateRooms, roomSummary };

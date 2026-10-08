@@ -60,7 +60,7 @@
                 const log = $("bjLog");
                 const div = document.createElement("div");
                 if (m.system) { div.className = "sys"; div.textContent = m.message; }
-                else div.innerHTML = `<b>${ArcadiaAPI.escapeHtml(m.username)}:</b> ${ArcadiaAPI.escapeHtml(m.message)}`;
+                else ArcadiaAvatar.chat(div, m);
                 log.appendChild(div);
                 log.scrollTop = log.scrollHeight;
             });

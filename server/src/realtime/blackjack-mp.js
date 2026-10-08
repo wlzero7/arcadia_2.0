@@ -556,7 +556,7 @@ function setupBlackjackMultiplayer(realIO) {
             if (!code || !tables.has(code)) return;
             const message = String(data && data.message || "").slice(0, 200).trim();
             if (!message) return;
-            io.to(`bj:${code}`).emit("bj:chat", { username: socket.username, message, at: Date.now() });
+            io.to(`bj:${code}`).emit("bj:chat", { ...require("../services/avatars").identity(socket.userId), message, at: Date.now() });
         });
 
         socket.on("disconnect", () => {

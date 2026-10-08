@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+    <link rel="icon" type="image/png" href="/assets/arcadia-logo.png">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Salas Multiplayer — Arcadia</title>
     <link rel="stylesheet" href="css/global.css">
     <link rel="stylesheet" href="css/rooms.css">
+    <link rel="stylesheet" href="css/game-visuals.css">
 </head>
 <body>
     <header class="header">
@@ -28,8 +30,8 @@
 
     <main class="container rooms-main">
         <section class="rooms-hero">
-            <h1>Salas <span class="accent">Multiplayer</span></h1>
-            <p>Crie uma sala, chame os amigos e apostem todos do <strong>pote compartilhado</strong>. Quem deposita no pote, joga com o dinheiro do grupo. 🎲</p>
+            <h1>Coop</h1>
+            <nav class="coop-games"><a href="blackjack-mp.html">Blackjack</a><a href="racing.html">Corrida de cavalos</a></nav>
         </section>
 
         <div class="rooms-grid">
@@ -79,45 +81,46 @@
                 <div id="roomsList" class="rooms-list"><p class="muted">Nenhuma sala aberta ainda.</p></div>
             </section>
         </div>
-    </main>
-
     <!-- Modal da sala -->
-    <div class="modal-overlay" id="roomModal">
-        <div class="room-modal">
+    <section class="room-session" id="roomModal" hidden>
+        <div class="coop-room">
             <div class="room-modal-header">
                 <div>
                     <h2 id="mRoomName">Sala</h2>
                     <p class="muted">Código: <strong class="accent" id="mRoomCode">------</strong>
-                       <button class="copy-btn" id="copyCode">copiar</button></p>
+                       <button class="icon-button" id="copyCode" title="Copiar código" aria-label="Copiar código"><i data-lucide="copy"></i></button></p>
                 </div>
-                <button class="modal-close" id="leaveRoomBtn">✕ Sair</button>
+                <button class="btn btn-outline" id="leaveRoomBtn"><i data-lucide="log-out"></i> Sair</button>
             </div>
 
             <div class="pot-banner">
-                <div class="pot-label">💰 POTE COMPARTILHADO</div>
+                <div class="pot-label">Pote compartilhado</div>
                 <div class="pot-value" id="mPot">0 AC</div>
+                <span class="muted" id="mReserved"></span>
                 <div class="pot-actions">
                     <input type="number" id="stakeAmount" placeholder="Valor" min="10">
                     <button class="btn btn-primary" id="stakeBtn">Depositar</button>
-                    <button class="btn btn-outline" id="withdrawBtn">Sacar stake</button>
+                    <button class="btn btn-outline" id="withdrawBtn">Sacar participação</button>
                 </div>
             </div>
 
             <div class="room-columns">
                 <div class="room-col">
-                    <h3>👥 Jogadores</h3>
+                    <h3>Jogadores <span id="playerCount"></span></h3>
                     <ul id="mPlayers" class="players-list"></ul>
                 </div>
                 <div class="room-col">
-                    <h3>🎮 Jogo</h3>
+                    <header class="game-title"><h3 id="coopGameName">Jogo</h3><span id="coopLiveStatus" role="status">Mesa aberta</span></header>
+                    <div id="coopLiveStage" class="game-visual-stage"></div>
                     <div id="gameArea" class="game-area"></div>
+                    <div class="coop-chart"><span class="muted">Resultado do pote · últimas rodadas</span><canvas id="potChart" width="600" height="120" role="img" aria-label="Variação do pote nas últimas rodadas"></canvas><span id="potTrend" class="muted"></span></div>
                 </div>
                 <div class="room-col">
                     <h3>💬 Chat</h3>
-                    <div id="chatLog" class="chat-log"></div>
+                    <div id="chatLog" class="chat-log" role="log" aria-live="polite"></div>
                     <div class="chat-input-row">
                         <input type="text" id="chatInput" placeholder="Mensagem..." maxlength="240">
-                        <button class="btn btn-primary" id="chatSend">➤</button>
+                        <button class="icon-button" id="chatSend" title="Enviar mensagem" aria-label="Enviar mensagem"><i data-lucide="send"></i></button>
                     </div>
                 </div>
             </div>
@@ -127,14 +130,17 @@
                 <div id="roundHistory" class="rounds"></div>
             </div>
         </div>
-    </div>
+    </section>
+    </main>
 
     <div class="toast" id="toast"></div>
 
+    <script src="assets/lucide.min.js"></script>
     <script src="js/sfx.js"></script>
     <script src="js/api.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="js/wallet.js"></script>
+    <script src="js/game-visuals.js"></script>
     <script src="js/rooms.js"></script>
 </body>
 </html>

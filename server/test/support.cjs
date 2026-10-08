@@ -57,4 +57,13 @@ class FakeIO {
         return socket;
     }
 }
-module.exports = { invoke, FakeIO, offline };
+// Conservation assertions separate game transfers from independently tested rewards.
+function rewardCredits(userId, kind = "solo") {
+    const pool = require("../src/config/database");
+    return pool.db.get("SELECT COALESCE(SUM(t.amount), 0) AS amount FROM transactions t JOIN wallets w ON w.id = t.wallet_id WHERE w.user_id = ? AND w.kind = ? AND t.ref_type IN ('achievement', 'mission')", [userId, kind]).amount;
+}
+function gameBalance(userId, kind = "solo") {
+    const pool = require("../src/config/database");
+    return pool.getWalletSync(userId, kind).balance - rewardCredits(userId, kind);
+}
+module.exports = { invoke, FakeIO, offline, rewardCredits, gameBalance };

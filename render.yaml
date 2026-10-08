@@ -15,5 +15,11 @@ services:
         generateValue: true
       - key: NODE_ENV
         value: production
-    # Nota: no plano FREE o disco é efêmero — o banco zera a cada redeploy/restart.
-    # Para persistir contas/saldos, adicione um Disk (plano pago) com DB_PATH=/var/data/arcadia.db.
+      - key: REQUIRE_PERSISTENT_DB
+        value: "1"
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+    # Configure private Turso variables before production deployment.
+    # Missing remote configuration must not create an empty local database.

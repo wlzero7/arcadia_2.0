@@ -84,6 +84,7 @@ app.use((req, res, next) => {
 // ========================================
 
 app.use("/api/auth", security.authRateLimit(), authRoutes);
+app.use("/api/avatars", require("./routes/avatar.routes"));
 app.use("/api/games/slots", slotsRoutes);
 app.use("/api/games", gameRoutes);
 app.use("/api/wallet", walletRoutes);
@@ -100,7 +101,7 @@ app.get("/api/health", (req, res) => {
     res.status(200).json({
         status: "ok",
         application: "Arcadia API",
-        version: "1.2.0",
+        version: "1.3.0",
         realtime: true,
     });
 });
@@ -110,14 +111,16 @@ app.get("/api/database/health", async (req, res) => {
         const result = await pool.get("SELECT datetime('now') AS database_time");
         res.status(200).json({
             status: "ok",
-            database: "SQLite",
+            database: pool.remote ? "Turso" : "SQLite",
+            persistent: pool.remote,
             connected: true,
             time: result ? result.database_time : null,
         });
     } catch (error) {
         res.status(500).json({
             status: "error",
-            database: "SQLite",
+            database: pool.remote ? "Turso" : "SQLite",
+            persistent: pool.remote,
             connected: false,
         });
     }
@@ -128,6 +131,7 @@ const path = require("path");
 const frontend = path.join(__dirname, "..", "..");
 app.use("/css", express.static(path.join(frontend, "css")));
 app.use("/js", express.static(path.join(frontend, "js")));
+app.use("/assets", express.static(path.join(frontend, "assets")));
 app.use((req, res, next) => {
     if (req.path === "/" || /^\/[a-z0-9-]+\.html$/.test(req.path)) return express.static(frontend)(req, res, next);
     next();
@@ -162,7 +166,7 @@ server.keepAliveTimeout = 65000; // evita 502 em proxies com idle > 5s
 server.headersTimeout = 66000;
 
 server.listen(PORT, () => {
-    console.log(`Arcadia API v1.2.0 http://localhost:${server.address().port}`);
+    console.log(`Arcadia API v1.3.0 http://localhost:${server.address().port}`);
     console.log(`   Banco: ${pool.DB_PATH}`);
     console.log(`   Realtime: Socket.IO ativo`);
 });

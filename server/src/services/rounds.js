@@ -1,6 +1,7 @@
 const pool = require("../config/database");
-const { grantXP } = require("./progression");
-const { checkGameAchievements, trackGameActivity } = require("./progression.routes");
+const { applyGameProgression } = require("./achievements");
+const { trackGameActivity } = require("./progression.routes");
+const { xpForRound } = require("./progression");
 
 function wager(value, min = 10, max = 1000000) {
     const amount = Number(value);
@@ -34,27 +35,26 @@ function recordBet(userId, game, amount, payout, outcome, detail = {}) {
     const multiplier = amount ? Number((payout / amount).toFixed(4)) : 0;
     pool.db.run("INSERT INTO bets (user_id, game, wager, multiplier, payout, outcome, detail) VALUES (?, ?, ?, ?, ?, ?, ?)", [userId, game, amount, multiplier, payout, outcome, JSON.stringify(detail)]);
     if (game === "mines" && outcome === "push" && detail.picks === 0) return { levelInfo: null, unlocked: [], cancelled: true };
-    const levelInfo = grantXP(userId, 10 + Math.floor(amount / 100));
-    const unlocked = checkGameAchievements(userId, { game, wager: amount, outcome, multiplier, detail });
-    trackGameActivity(userId, { game, wager: amount, outcome, detail });
-    return { levelInfo, unlocked };
+    trackGameActivity(userId, { game, wager: amount, outcome, detail }, new Date(), false);
+    return applyGameProgression(userId, { game, wager: amount, outcome, multiplier, detail }, xpForRound(amount));
 }
 function settleRound(userId, game, payout, outcome, detail) {
     return pool.transactionSync(() => {
         const state = getSession(userId, game);
         if (!state) throw new Error("Nenhuma partida em andamento.");
-        const balance = pool.adjustBalanceSync(state.walletId, payout, "payout", "game", game);
+        pool.adjustBalanceSync(state.walletId, payout, "payout", "game", game);
         const progression = recordBet(userId, game, state.wager, payout, outcome, { ...detail, allWin: state.allWin === true });
         pool.db.run("DELETE FROM game_sessions WHERE user_id = ? AND game = ?", [userId, game]);
-        return { balance, ...progression };
+        return { balance: pool.db.get("SELECT balance FROM wallets WHERE id = ?", [state.walletId]).balance, ...progression };
     });
 }
 function settleInstant(userId, game, amount, payout, outcome, detail, walletKind = "solo") {
     return pool.transactionSync(() => {
         const wallet = pool.getWalletSync(userId, walletKind);
         pool.adjustBalanceSync(wallet.id, -amount, "bet", "game", game);
-        const balance = pool.adjustBalanceSync(wallet.id, payout, "payout", "game", game);
-        return { balance, ...recordBet(userId, game, amount, payout, outcome, { ...detail, allWin: amount === wallet.balance }) };
+        pool.adjustBalanceSync(wallet.id, payout, "payout", "game", game);
+        const progression = recordBet(userId, game, amount, payout, outcome, { ...detail, allWin: amount === wallet.balance });
+        return { balance: pool.db.get("SELECT balance FROM wallets WHERE id = ?", [wallet.id]).balance, ...progression };
     });
 }
 function handler(fn) {

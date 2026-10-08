@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { invoke, FakeIO } = require("./support.cjs");
+const { invoke, FakeIO, gameBalance } = require("./support.cjs");
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-blackjack-"));
 process.env.DB_PATH = path.join(directory, "test.db");
 const pool = require("../src/config/database");
@@ -135,7 +135,7 @@ test("Solo 21 and no-hit achievements use authoritative round details and settle
     assert.equal(pool.db.get("SELECT COUNT(*) AS n FROM bets WHERE user_id = ?",[id]).n,1);
 });
 test("Duel reconnect restores cards without exposing deck, double settles once and conserves both wallets", () => {
-    const r = duel(); const total = () => pool.getWalletSync(r.a,"duel").balance + pool.getWalletSync(r.b,"duel").balance;
+    const r = duel(); const total = () => gameBalance(r.a,"duel") + gameBalance(r.b,"duel");
     const before = total(), restored = r.io.connect(r.a).call("duel:join",{ code: r.state.code }).duel.activePlay;
     assert.equal(restored.deck,undefined); assert.deepEqual(restored.player,r.state.activePlay.player); assert.deepEqual(restored.dealer[1],{ hidden: true });
     assert.equal(r.p2.call("duel:double").ok,false); assert.equal(r.p1.call("duel:double").ok,true);
@@ -159,7 +159,7 @@ test("Multiplayer All Win debits only on consent, settles full pot, preserves to
     assert.equal(pool.getWalletSync(r.a,"coop").balance,0);
     r.state.players.get(r.a).hand = [card("A"),card("K")]; r.state.players.get(r.b).hand = [card(10),card(8)];
     assert.equal(r.p1.call("bj:stand").ok,true); assert.equal(r.p2.call("bj:stand").ok,true);
-    assert.equal(pool.getWalletSync(r.a,"coop").balance,303); assert.equal(pool.getWalletSync(r.b,"coop").balance,0);
+    assert.equal(gameBalance(r.a,"coop"),303); assert.equal(gameBalance(r.b,"coop"),0);
     assert.ok(has(r.a,"all_win")); assert.ok(has(r.b,"all_win")); assert.ok(has(r.a,"blackjack_21")); assert.ok(has(r.a,"no_cards"));
     assert.equal(r.p2.call("bj:stand").ok,false); assert.equal(r.state.pot,0);
     r.tables.delete(r.state.code);
@@ -169,7 +169,7 @@ test("Multiplayer odd-pot ties and all-bust refunds conserve every AC", () => {
         const r = funded([101,202]); r.p1.call("bj:start");
         for (const id of [r.a,r.b]) r.state.players.get(id).hand = busted ? [card(10),card(10),card(10)] : [card(10),card(8)];
         r.p1.call("bj:stand"); r.p2.call("bj:stand");
-        const a = pool.getWalletSync(r.a,"coop").balance, b = pool.getWalletSync(r.b,"coop").balance;
+        const a = gameBalance(r.a,"coop"), b = gameBalance(r.b,"coop");
         assert.equal(a + b,303);
         if (busted) { assert.equal(a,101); assert.equal(b,202); }
         else assert.equal(Math.abs(a - b),1);
@@ -188,7 +188,7 @@ test("Multiplayer rejects mixed practice/betting and rolls back a stale balance 
 test("Multiplayer large shared pot unlocks rich friends and reconnect keeps escrow", () => {
     const r = funded([5000000,5000000]); r.p1.call("bj:start"); assert.ok(has(r.a,"rich_friends")); assert.ok(has(r.b,"rich_friends"));
     assert.equal(r.io.connect(r.a).call("bj:join",{ code: r.state.code }).table.pot,10000000);
-    assert.equal(pool.getWalletSync(r.a,"coop").balance,0); r.tables.delete(r.state.code);
+    assert.equal(gameBalance(r.a,"coop"),0); r.tables.delete(r.state.code);
 });
 test("Multiplayer reconnect preserves the turn and disconnect expiry settles at most once", () => {
     const r = funded([101,202]); r.p1.call("bj:start");
@@ -202,7 +202,7 @@ test("Multiplayer reconnect preserves the turn and disconnect expiry settles at 
         expire(); assert.equal(r.state.players.get(r.a).stood,false); assert.equal(r.state.pot,303);
         reconnect.disconnect(); expire(); assert.equal(r.state.players.get(r.a).stood,true);
         assert.equal(r.p2.call("bj:stand").ok,true); expire();
-        assert.equal(pool.getWalletSync(r.a,"coop").balance + pool.getWalletSync(r.b,"coop").balance,303);
+        assert.equal(gameBalance(r.a,"coop") + gameBalance(r.b,"coop"),303);
         assert.equal(pool.db.get("SELECT COUNT(*) AS n FROM bets WHERE user_id IN (?,?)",[r.a,r.b]).n,2);
     } finally { global.setTimeout = original; r.tables.delete(r.state.code); }
 });

@@ -1,0 +1,24 @@
+.game-visual-stage { min-height:240px; display:grid; place-items:center; overflow:hidden; background:#101115; border-top:1px solid #30323b; border-bottom:1px solid #30323b; position:relative; }
+.visual-dice-scene,.visual-coin-scene { display:grid; place-items:center; width:100%; height:240px; }
+.visual-dice { width:108px; height:108px; padding:20px; display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(3,1fr); gap:8px; background:#f2f1f0; border-radius:14px; border:4px solid #d3d3d3; box-shadow:0 12px 0 #47474f,0 24px 30px #000; }
+.dice-pip { background:#dc2941; border-radius:50%; width:100%; height:100%; }
+.visual-dice.rolling { animation:visualShake .2s infinite; }
+@keyframes visualShake { 0%,100%{transform:translate(-4px,-4px) rotate(-12deg);}50%{transform:translate(4px,4px) rotate(12deg);} }
+.visual-coin { width:150px; height:150px; filter:drop-shadow(0 14px 16px #000); }
+.visual-coin.spinning { animation:visualCoin .25s linear infinite; }
+@keyframes visualCoin {0%,100%{transform:scaleX(1) translateY(0);}50%{transform:scaleX(.15) translateY(-24px);} }
+.visual-slot-machine { width:min(340px,calc(100% - 32px)); padding:14px; background:#27272e; border:3px solid #ad9567; border-radius:8px; }
+.slot-marquee { color:#e2d2a9; text-align:center; font-size:14px; font-weight:800; padding:8px 0 14px; }
+.visual-reels { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+.visual-reels span { height:96px; display:grid; place-items:center; font-size:42px; font-weight:900; background:#f1e8dc; color:#d41a36; border-radius:4px; overflow:hidden; }
+.visual-reels span.spinning { filter:blur(2px); }
+.slot-indicator { text-align:center; color:#e2d2a9; padding-top:12px; font-size:12px; }
+.visual-wheel-scene { width:240px; height:240px; position:relative; }
+.visual-wheel { width:240px; height:240px; }
+.wheel-pointer { position:absolute; left:calc(50% - 6px); top:3px; width:12px; height:20px; background:#f1deae; clip-path:polygon(0 0,100% 0,50% 100%); z-index:2; }
+.wheel-number { position:absolute; inset:0; display:grid; place-items:center; font-size:36px; pointer-events:none; }
+.visual-crash-scene { width:100%; height:240px; position:relative; }
+.visual-crash-scene canvas { width:100%; height:100%; }
+.visual-multiplier { position:absolute; top:44px; left:0; width:100%; text-align:center; font-size:42px; font-variant-numeric:tabular-nums; color:#22d3ee; }
+.visual-crash-state { position:absolute; bottom:16px; left:16px; color:#bfc0c6; font-size:13px; }
+@media (prefers-reduced-motion:reduce) {.visual-dice.rolling,.visual-coin.spinning {animation:none;} }

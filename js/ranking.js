@@ -32,6 +32,11 @@
                     <span class="profit ${profit >= 0 ? "positive" : "negative"}">${fmt(profit)}</span>
                 `;
                 list.appendChild(div);
+                const player = div.querySelector(".player");
+                player.classList.add("player-identity");
+                const avatar = document.createElement("span"); avatar.className = "player-avatar";
+                ArcadiaAvatar.render(avatar, row.avatar, row.displayName || row.username);
+                player.replaceChildren(avatar, document.createTextNode(row.displayName || row.username));
             });
         } catch (err) {
             list.innerHTML = `<div class="empty-state">

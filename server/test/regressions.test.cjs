@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { invoke, FakeIO } = require("./support.cjs");
+const { invoke, FakeIO, gameBalance } = require("./support.cjs");
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-regression-"));
 process.env.DB_PATH = path.join(directory, "test.db");
 const pool = require("../src/config/database");
@@ -22,7 +22,7 @@ function user() {
     for (const kind of ["solo", "coop", "duel"]) pool.getWalletSync(id, kind);
     return id;
 }
-function balance(id, kind = "solo") { return pool.getWalletSync(id, kind).balance; }
+function balance(id, kind = "solo") { return gameBalance(id, kind); }
 function card(id, key) { pool.db.run("INSERT INTO slots_cards (user_id, card_key, rarity) VALUES (?, ?, 'epica')", [id, key]); }
 
 test("balances survive boot without being refilled; sessions survive another process", () => {
@@ -289,7 +289,7 @@ test("Blackjack hides the hole card and double debits/settles exactly once", () 
 test("Escudo accounts for refunds, and insufficient Duplicador preserves the card", () => {
     const id = user(); card(id, "escudo");
     const result = invoke(slots, "/play", id, { wager: 100, trump: "escudo" });
-    assert.equal(result.status, 200); assert.equal(result.balance, 1000000 + result.delta); assert.ok(result.delta >= 0);
+    assert.equal(result.status, 200); assert.equal(balance(id), 1000000 + result.delta); assert.equal(result.balance, pool.getWalletSync(id).balance); assert.ok(result.delta >= 0);
     const poor = user(); pool.db.run("UPDATE wallets SET balance = 150 WHERE user_id = ? AND kind = 'solo'", [poor]); card(poor, "duplicador");
     assert.equal(invoke(slots, "/play", poor, { wager: 100, trump: "duplicador" }).status, 400);
     assert.equal(balance(poor), 150);

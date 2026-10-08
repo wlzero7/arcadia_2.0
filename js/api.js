@@ -1,4 +1,25 @@
 window.API_URL = window.location.origin;
+window.ArcadiaAvatar = {
+    render(element, value, name = "Jogador") {
+        if (!element) return;
+        element.replaceChildren();
+        if (/^\/api\/avatars\/\d+\?v=[a-f0-9]{16}$/.test(value || "")) {
+            const image = new Image();
+            image.src = value; image.alt = "Foto de " + name;
+            image.addEventListener("error", () => { element.textContent = "🎰"; }, { once: true });
+            element.appendChild(image);
+        } else element.textContent = typeof value === "string" && value.length <= 8 ? value : "🎰";
+    },
+    chat(element, message) {
+        element.className = "avatar-chat";
+        const avatar = document.createElement("span"); avatar.className = "player-avatar";
+        this.render(avatar, message.avatar, message.displayName || message.username);
+        const copy = document.createElement("span");
+        const name = document.createElement("b"); name.textContent = (message.displayName || message.username) + ": ";
+        copy.append(name, document.createTextNode(message.message));
+        element.append(avatar, copy);
+    },
+};
 const ArcadiaAPI = (() => {
     const USER_KEY = "arcadia_user";
     const TOKEN_KEY = "arcadia_token";
