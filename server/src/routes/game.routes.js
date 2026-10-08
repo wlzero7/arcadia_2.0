@@ -55,7 +55,7 @@ const GAMES = {
 router.post("/:game/play", authenticate, rounds.handler((req) => {
     const game = Object.hasOwn(GAMES, req.params.game) && GAMES[req.params.game];
     if (!game) throw new Error("Jogo não encontrado.");
-    const wager = rounds.wager(req.body.wager);
+    const wager = rounds.resolveWager(req.user.id, req.body);
     const result = game.play(wager, req.body.choice);
     return { ...result, ...rounds.settleInstant(req.user.id, req.params.game, wager, result.payout, result.outcome, result.detail) };
 }));
@@ -69,7 +69,7 @@ function minesState(userId) {
 }
 router.get("/mines/state", authenticate, rounds.handler((req) => minesState(req.user.id)));
 router.post("/mines/start", authenticate, rounds.handler((req) => {
-    const wager = rounds.wager(req.body.wager);
+    const wager = rounds.resolveWager(req.user.id, req.body);
     const count = integer(req.body.mines ?? 3, 1, 24, "Número de minas inválido.");
     const mines = shuffle(Array.from({ length: 25 }, (_, i) => i)).slice(0, count);
     const balance = rounds.startRound(req.user.id, "mines", wager, { mines, picked: [] });
@@ -96,13 +96,14 @@ router.post("/mines/cashout", authenticate, rounds.handler((req) => {
     return { multiplier, payout, mines: state.mines, ...rounds.settleRound(req.user.id, "mines", payout, state.picked.length ? "win" : "push", { picks: state.picked.length }) };
 }));
 
+const crashMultiplier = (startedAt) => Math.pow(1.06, Math.max(0, Date.now() - startedAt) / 1000 * 6);
 function crashState(userId, cashout = false) {
     const state = rounds.getSession(userId, "crash");
     if (!state) {
         if (cashout) throw new Error("Nenhuma partida em andamento.");
         return { active: false };
     }
-    const current = Math.pow(1.06, (Date.now() - state.startedAt) / 1000 * 6);
+    const current = crashMultiplier(state.startedAt);
     if (current >= state.crashPoint) {
         return { active: false, crashed: true, crashPoint: state.crashPoint, wager: state.wager, ...rounds.settleRound(userId, "crash", 0, "loss", { crashPoint: state.crashPoint }) };
     }
@@ -116,7 +117,7 @@ function crashState(userId, cashout = false) {
 }
 router.post("/crash/start", authenticate, rounds.handler((req) => {
     if (rounds.getSession(req.user.id, "crash")) crashState(req.user.id);
-    const wager = rounds.wager(req.body.wager);
+    const wager = rounds.resolveWager(req.user.id, req.body);
     const crashPoint = Math.max(1, Math.floor(1 / (1 - random()) * 100) / 100);
     const balance = rounds.startRound(req.user.id, "crash", wager, { crashPoint });
     return { wager, balance };
@@ -250,7 +251,7 @@ router.get("/stats/full", authenticate, async (req, res) => {
         const walletMap = Object.fromEntries((wallets.rows || []).map((w) => [w.kind, w.balance]));
 
         // ---- conquistas ----
-        const achCount = await pool.get(`SELECT COUNT(*) AS total FROM user_achievements WHERE user_id = ?`, [uid]);
+        const achCount = require("../services/achievements").achievementCount(uid);
 
         // ---- duelo ----
         const duel = await pool.get(`SELECT wins, losses FROM duel_stats WHERE user_id = ?`, [uid]);
@@ -352,7 +353,7 @@ router.get("/public/:username", async (req, res) => {
             [user.id]
         );
 
-        const achCount = await pool.get(`SELECT COUNT(*) AS total FROM user_achievements WHERE user_id = ?`, [user.id]);
+        const achCount = require("../services/achievements").achievementCount(user.id);
         const duel = await pool.get(`SELECT wins, losses FROM duel_stats WHERE user_id = ?`, [user.id]);
 
         return res.json({
@@ -385,7 +386,7 @@ const PLINKO_TABLES = {
     high: [1000, 130, 26, 9, 4, 2, 0.2, 0.2, 0.2, 0.2, 0.2, 2, 4, 9, 26, 130, 1000],
 };
 router.post("/plinko/drop", authenticate, rounds.handler((req) => {
-    const wager = rounds.wager(req.body.wager);
+    const wager = rounds.resolveWager(req.user.id, req.body);
     const risk = req.body.risk ?? "medium";
     if (!PLINKO_TABLES[risk]) throw new Error("Escolha um risco válido.");
     const path = Array.from({ length: 16 }, () => randomInt(2));
@@ -395,4 +396,4 @@ router.post("/plinko/drop", authenticate, rounds.handler((req) => {
     const outcome = payout > wager ? "win" : payout === wager ? "push" : "loss";
     return { risk, path, slot, multiplier, payout, outcome, ...rounds.settleInstant(req.user.id, "plinko", wager, payout, outcome, { risk, slot, path }) };
 }));
-module.exports = { router, GAMES, minesMultiplier };
+module.exports = { router, GAMES, minesMultiplier, crashMultiplier };

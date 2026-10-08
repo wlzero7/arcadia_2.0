@@ -54,6 +54,7 @@
                 mySpecials = data.cards;
                 renderSpecials();
             });
+            socket.on("bj:round_end", () => { ArcadiaWallet.refresh(); Sfx.card(); });
             socket.on("bj:chat", (m) => {
                 if (m.system && m.message && m.message.includes("especial")) Sfx.cardSpecial();
                 const log = $("bjLog");
@@ -83,6 +84,14 @@
         const isHost = me && t.hostId === me.id;
 
         $("startBtn").classList.toggle("hidden", !(isHost && t.phase !== "playing"));
+        $("bjBetRow").classList.toggle("hidden", t.phase === "playing");
+        $("bjPot").textContent = ArcadiaWallet.format(t.pot || 0);
+        const result = (t.results || []).find((r) => r.id === me?.id);
+        const resultEl = $("bjRoundResult");
+        resultEl.className = "bj-round-result " + (result?.outcome || "");
+        resultEl.textContent = result ? `${result.outcome === "win" ? "Voce venceu!" : result.outcome === "push" ? "Aposta devolvida." : "Voce perdeu."} Recebido: ${ArcadiaWallet.format(result.payout || 0)}` : "";
+        $("bjBetStatus").textContent = mePlayer?.pendingWager ? "Aposta confirmada: " + ArcadiaWallet.format(mePlayer.pendingWager) : "Sem aposta confirmada";
+        if (t.phase === "playing") ArcadiaWallet.refresh();
 
         // jogadores
         const row = $("playersRow");
@@ -94,6 +103,7 @@
                 <div class="bj-name"><span>${ArcadiaAPI.escapeHtml(p.username)}${p.id === (me || {}).id ? " (você)" : ""}</span><span class="bj-total">${p.total}${t.phase === "playing" ? "?" : ""}</span></div>
                 <div class="bj-cards">${p.hand.map(cardHtml).join("")}</div>
                 <div class="bj-nrg">⚡ ${p.nrg} NRG · 🎴 ${p.specials}</div>
+                <div class="bj-nrg">${ArcadiaWallet.format(t.phase === "playing" ? p.wager : p.pendingWager)}</div>
                 ${p.stood ? '<div class="bj-stand">✋ parou</div>' : ""}
                 ${p.busted ? '<div class="bj-stand" style="color:#fca5a5">💥 estourou</div>' : ""}
             `;
@@ -117,7 +127,7 @@
         const list = $("specialsList");
         list.innerHTML = "";
         if (mySpecials.length === 0) {
-            list.innerHTML = '<span class="muted">Nenhuma carta especial ainda. Compre cartas do monte (30% de chance)!</span>';
+            list.innerHTML = '<span class="muted">Inventário vazio</span>';
             return;
         }
         mySpecials.forEach((key, i) => {
@@ -175,6 +185,7 @@
     }
 
     $("createTableBtn").addEventListener("click", async () => {
+        await ArcadiaAPI.ready;
         if (!ArcadiaAPI.isLoggedIn()) return alert("Entre na sua conta primeiro!");
         await connect();
         socket.emit("bj:create", {}, (r) => {
@@ -184,6 +195,7 @@
     });
 
     $("joinTableBtn").addEventListener("click", async () => {
+        await ArcadiaAPI.ready;
         if (!ArcadiaAPI.isLoggedIn()) return alert("Entre na sua conta primeiro!");
         await connect();
         socket.emit("bj:join", { code: $("joinCode").value }, (r) => {
@@ -194,6 +206,12 @@
 
     $("startBtn").addEventListener("click", () => {
         socket.emit("bj:start", {}, (r) => { if (!r.ok) alert(r.error); });
+    });
+    $("bjBetBtn").addEventListener("click", () => {
+        socket.emit("bj:bet", { amount: Number($("bjWager").value), allWin: ArcadiaWallet.isAllWin("bjWager") }, (r) => { if (!r.ok) $("bjBetStatus").textContent = r.error; });
+    });
+    $("bjPracticeBtn").addEventListener("click", () => {
+        socket.emit("bj:bet", { amount: 0 }, (r) => { if (!r.ok) $("bjBetStatus").textContent = r.error; });
     });
 
     $("hitBtn").addEventListener("click", () => {

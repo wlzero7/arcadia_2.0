@@ -141,6 +141,23 @@ CREATE TABLE IF NOT EXISTS game_sessions (
     state TEXT NOT NULL,
     PRIMARY KEY (user_id, game)
 );
+CREATE TABLE IF NOT EXISTS blackjack_cards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    card_key TEXT NOT NULL,
+    rarity TEXT NOT NULL,
+    acquired_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_blackjack_cards_user ON blackjack_cards(user_id);
+CREATE TABLE IF NOT EXISTS bug_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+    reviewed_by INTEGER REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS realtime_sessions (
     mode TEXT NOT NULL,
     code TEXT NOT NULL,

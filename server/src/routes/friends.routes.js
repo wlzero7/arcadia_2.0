@@ -6,6 +6,7 @@ const express = require("express");
 const pool = require("../config/database");
 const { authenticate } = require("../middleware/auth");
 const { sendInvite } = require("../realtime/invites");
+const { checkProfileAchievements } = require("../services/achievements");
 
 const router = express.Router();
 
@@ -81,6 +82,8 @@ router.post("/request", authenticate, async (req, res) => {
             // Se o OUTRO já me pediu, aceita direto
             if (existing.status === "pending" && existing.friend_id === req.user.id) {
                 await pool.run(`UPDATE friendships SET status = 'accepted' WHERE user_id = ? AND friend_id = ?`, [target.id, req.user.id]);
+                checkProfileAchievements(target.id);
+                checkProfileAchievements(req.user.id);
                 return res.json({ status: "success", message: "Agora vocês são amigos!" });
             }
             return res.status(400).json({ status: "error", message: "Pedido já existe." });
@@ -109,6 +112,8 @@ router.post("/accept", authenticate, async (req, res) => {
             return res.status(404).json({ status: "error", message: "Pedido não encontrado." });
         }
 
+        checkProfileAchievements(Number(req.body.requestId));
+        checkProfileAchievements(req.user.id);
         return res.json({ status: "success", message: "Amizade aceita!" });
     } catch (error) {
         return res.status(500).json({ status: "error", message: "Erro ao aceitar." });

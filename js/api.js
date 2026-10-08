@@ -22,6 +22,10 @@ const ArcadiaAPI = (() => {
     }
     function isLoggedIn() { return !!getUser(); }
     async function request(path, options = {}) {
+        if (path.startsWith("/api/games/") && options.body && window.ArcadiaWallet?.isAllWin()) {
+            const body = JSON.parse(options.body);
+            if (Object.hasOwn(body, "wager") || Object.hasOwn(body, "bets")) options = { ...options, body: JSON.stringify({ ...body, allWin: true }) };
+        }
         const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
         const token = getToken();
         if (token) headers.Authorization = "Bearer " + token;

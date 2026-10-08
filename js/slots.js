@@ -139,6 +139,9 @@
             if (data.outcome === "win") {
                 setMessage(`${data.jackpot ? "💥 PRÊMIO MÁXIMO! " : "🎉 "}+${fmt(data.payout)}`, "win");
                 $("lastPayout").textContent = "+" + fmt(data.payout);
+            } else if (data.outcome === "push") {
+                setMessage("Aposta devolvida.", "");
+                $("lastPayout").textContent = fmt(data.payout);
             } else {
                 setMessage(`Perdeu ${fmt(Math.abs(data.delta))}.`, "loss");
                 $("lastPayout").textContent = "—";

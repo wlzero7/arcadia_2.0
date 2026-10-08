@@ -79,3 +79,15 @@
 }
 .bjmp-log .sys { color: rgba(255,255,255,.55); font-style: italic; }
 .bjmp-log b { color: #fde68a; }
+.bjmp-bets { display: flex; flex-wrap: wrap; align-items: end; gap: .7rem; padding: 1rem 0; }
+.bjmp-bets label { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; max-width: 100%; }
+.bjmp-bets input { width: 130px; min-width: 0; }
+.bjmp-bets #bjBetStatus { flex-basis: 100%; overflow-wrap: anywhere; }
+.bjmp-header { flex-wrap: wrap; }
+.bj-player { min-width: 0; max-width: 100%; flex: 1 1 200px; }
+.bj-name > span:first-child { overflow-wrap: anywhere; min-width: 0; }
+.bj-total { flex-shrink: 0; }
+.bj-round-result { margin-bottom: .8rem; color: #fef3c7; }
+.bj-round-result.win { color: #6ee7b7; }
+.bj-round-result.loss { color: #fca5a5; }
+@media (max-width: 420px) { .bjmp-arena { padding: .8rem; border-width: 4px; } .special-card { flex-wrap: wrap; } .special-target select { max-width: 100%; } }

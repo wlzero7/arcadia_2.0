@@ -7,6 +7,7 @@
     <meta name="description" content="Duelo x1 — Arcadia">
     <title>Duelo x1 — Arcadia</title>
     <link rel="stylesheet" href="css/global.css">
+    <link rel="stylesheet" href="css/blackjack.css">
     <link rel="stylesheet" href="css/duel.css">
 </head>
 
@@ -75,6 +76,67 @@
 
             <div class="duel-turn" id="duelTurn">Aguardando oponente entrar...</div>
 
+            <section class="panel duel-live-panel" id="duelLivePanel">
+                <div class="duel-live-head">
+                    <div>
+                        <h2 id="liveGameTitle">🎮 Arena ao vivo</h2>
+                        <p class="muted" id="liveGameSubtitle">Aguardando jogadores.</p>
+                    </div>
+                    <span class="round-chip" id="liveRoundChip">Rodada —</span>
+                </div>
+                <div class="duel-live-stage" id="duelLiveStage" data-game="idle"></div>
+                <div class="duel-live-summary" id="duelLiveSummary" role="status">Aguardando o início do duelo.</div>
+                <div class="live-actions">
+                    <button class="btn btn-success hidden" id="cashoutBtn">Sacar</button>
+                    <div class="actions hidden" id="duelBjActions">
+                        <button class="btn btn-primary" id="duelHit">Comprar</button>
+                        <button class="btn btn-outline" id="duelStand">Parar</button>
+                        <button class="btn btn-outline" id="duelDouble">Dobrar</button>
+                    </div>
+                </div>
+                <div class="hidden" id="duelBlackjackTrumps"></div>
+                <div class="hidden" id="duelPlay">
+                    <div class="play-row">
+                        <select id="gameSelect" aria-label="Jogo">
+                            <option value="dice">🎲 Dados</option>
+                            <option value="coinflip">🪙 Cara ou coroa</option>
+                            <option value="crash">🚀 Crash</option>
+                            <option value="mines">💣 Mines</option>
+                            <option value="roulette">🎡 Roleta</option>
+                            <option value="slots">🎰 Slots</option>
+                            <option value="blackjack">🃏 Blackjack</option>
+                        </select>
+                        <input type="number" id="wager" aria-label="Aposta em AC" placeholder="Aposta (min 10)" min="10" max="1000000" step="1">
+                        <input type="number" id="crashTarget" class="hidden" aria-label="Auto-cashout" placeholder="Auto-cashout (opcional)" step="0.01" min="1.01" max="100">
+                        <button class="btn btn-primary" id="playBtn">Jogar</button>
+                    </div>
+                    <div class="number-pick hidden" id="dicePick"></div>
+                    <div class="side-pick hidden" id="sidePick">
+                        <button data-side="heads">👑 Cara</button>
+                        <button data-side="tails">🦅 Coroa</button>
+                    </div>
+                    <div class="field-row hidden" id="minesPick">
+                        <label for="minesCount">Minas:</label>
+                        <input type="number" id="minesCount" value="5" min="1" max="24" step="1">
+                    </div>
+                    <div class="field-row hidden" id="roulettePick">
+                        <label for="rouletteBet">Aposta:</label>
+                        <select id="rouletteBet">
+                            <option value="red">Vermelho (2x)</option>
+                            <option value="black">Preto (2x)</option>
+                            <option value="even">Par (2x)</option>
+                            <option value="odd">Ímpar (2x)</option>
+                            <option value="low">1-18 (2x)</option>
+                            <option value="high">19-36 (2x)</option>
+                        </select>
+                    </div>
+                    <div class="trump-row hidden" id="trumpRow">
+                        <label for="trumpSelect">🃏 Trunfo (consome a carta):</label>
+                        <select id="trumpSelect"><option value="">— Nenhum —</option></select>
+                    </div>
+                </div>
+            </section>
+
             <section class="panel hidden" id="auctionPanel">
                 <h2>🔨 Leilão de modos</h2>
                 <p class="muted">Dê um lance (da carteira DUEL) no modo que você quer jogar. O maior lance escolhe!</p>
@@ -85,48 +147,6 @@
                     <button class="btn btn-success hidden" id="chooseBtn">✅ Escolher este modo</button>
                 </div>
                 <div class="game-result" id="auctionMsg"></div>
-            </section>
-
-            <section class="panel hidden" id="duelPlay">
-                <div class="play-row">
-                    <select id="gameSelect">
-                        <option value="dice">🎲 Dados</option>
-                        <option value="coinflip">🪙 Cara ou coroa</option>
-                        <option value="crash">🚀 Crash</option>
-                        <option value="mines">💣 Mines</option>
-                        <option value="roulette">🎡 Roleta</option>
-                        <option value="slots">🎰 Slots</option>
-                    </select>
-                    <input type="number" id="wager" placeholder="Aposta (min 10)" min="10">
-                    <input type="number" id="crashTarget" class="hidden" placeholder="Auto-cashout (ex: 2)" step="0.1" min="1.1">
-                    <button class="btn btn-primary" id="playBtn">Jogar</button>
-                </div>
-                <div class="number-pick hidden" id="dicePick"></div>
-                <div class="side-pick hidden" id="sidePick">
-                    <button data-side="heads">👑 Cara</button>
-                    <button data-side="tails">🦅 Coroa</button>
-                </div>
-                <div class="field-row hidden" id="minesPick">
-                    <label for="minesPicks">Casas para abrir:</label>
-                    <input type="number" id="minesPicks" value="3" min="1" max="10">
-                </div>
-                <div class="field-row hidden" id="roulettePick">
-                    <label for="rouletteBet">Aposta:</label>
-                    <select id="rouletteBet">
-                        <option value="red">Vermelho (2x)</option>
-                        <option value="black">Preto (2x)</option>
-                        <option value="even">Par (2x)</option>
-                        <option value="odd">Ímpar (2x)</option>
-                        <option value="low">1-18 (2x)</option>
-                        <option value="high">19-36 (2x)</option>
-                    </select>
-                </div>
-                <div class="trump-row hidden" id="trumpRow">
-                    <label for="trumpSelect">🃏 Trunfo (consome a carta):</label>
-                    <select id="trumpSelect">
-                        <option value="">— Nenhum —</option>
-                    </select>
-                </div>
             </section>
 
             <section class="panel">
@@ -149,6 +169,7 @@
     <script src="js/api.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="js/wallet.js"></script>
+    <script src="js/blackjack-controls.js"></script>
     <script src="js/duel.js"></script>
 </body>
 

@@ -26,8 +26,8 @@ const TRUMPS = {
     azarao:        { name: "Azarão",           rarity: "comum",      duelOnly: false, desc: "2% de chance de transformar a derrota em reembolso." },
     cometa:        { name: "Cometa",           rarity: "lendaria",   duelOnly: false, desc: "Se perder, o giro se repete grátis uma vez." },
     duplicador:    { name: "Duplicador",       rarity: "rara",       duelOnly: false, desc: "Prêmio em dobro — mas a derrota custa o dobro." },
-    bloqueador:    { name: "Bloqueador",       rarity: "super_rara", duelOnly: true,  desc: "Duelo: bloqueia a vez do oponente; você gira de novo." },
-    allwin:        { name: "ALL WIN",          rarity: "cromatica",  duelOnly: true,  desc: "Duelo: all-in — quem vencer o giro leva tudo." },
+    bloqueador:    { name: "Bloqueador",       rarity: "super_rara", duelOnly: false, desc: "Duelo: mantém sua vez. Solo/Coop: repete gratuitamente um giro perdido." },
+    allwin:        { name: "ALL WIN",          rarity: "cromatica",  duelOnly: false, desc: "Aposta todo o saldo. No Duelo, o vencedor leva todo o saldo do oponente." },
 };
 
 const RARITY_ORDER = ["comum", "rara", "super_rara", "epica", "lendaria", "cromatica"];
@@ -63,15 +63,17 @@ function evaluate(reels) {
 }
 
 // Resolve um giro completo com trunfo opcional (server-authoritative)
-function resolveSpin({ wager, trump = null }) {
+function resolveSpin({ wager, trump = null, mode = "solo" }) {
     const notes = [];
     let reels = spinReels(trump === "sortudo");
     let ev = evaluate(reels);
 
     if (trump === "abencoado") {
+        reels = Array(3).fill(SYMBOLS.find((s) => s.key === "seven"));
         ev = { outcome: "win", mult: 100, jackpot: true };
         notes.push("🌟 O Abençoado: vitória garantida em 100x!");
     } else if (trump === "aumento_odds") {
+        reels = Array(3).fill(SYMBOLS.find((s) => s.key === "lemon"));
         ev = { outcome: "win", mult: 3, jackpot: false };
         notes.push("📈 Aumento das Odds: lucro garantido de 2x!");
     } else if (trump === "superestimado") {
@@ -81,7 +83,7 @@ function resolveSpin({ wager, trump = null }) {
             if (next.mult > ev.mult) { reels = candidate; ev = next; }
         }
         notes.push("🚀 Superestimado: até 4 giros — valeu o melhor resultado.");
-    } else if (trump === "cometa" && ev.outcome === "loss") {
+    } else if ((trump === "cometa" || (trump === "bloqueador" && mode !== "duel")) && ev.outcome === "loss") {
         reels = spinReels(false);
         ev = evaluate(reels);
         notes.push("☄️ Cometa: o giro se repetiu grátis!");

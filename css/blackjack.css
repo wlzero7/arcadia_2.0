@@ -43,3 +43,13 @@
 .bet-row input { width: 140px; padding: .6rem .8rem; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text); }
 .actions { display: flex; gap: .6rem; }
 .hidden { display: none !important; }
+.bj-trumps { display: flex; gap: .7rem; flex-wrap: wrap; align-items: end; width: 100%; max-width: 760px; margin: 1rem auto; }
+.bj-trumps label { display: grid; gap: .3rem; min-width: 0; max-width: 100%; flex: 1 1 160px; }
+.bj-trumps select { width: 100%; min-width: 0; }
+.bj-trump-status { width: 100%; color: var(--danger); }
+.live-bj-table { padding: 1rem; background: #123e2c; width: 100%; }
+.live-bj-table h3 { font-size: .9rem; margin: .6rem 0; color: #d1fae5; }
+.live-bj-table .card { width: 54px; height: 78px; flex-shrink: 0; border-radius: 6px; }
+.live-bj-table .cards { min-height: 78px; }
+.actions, .bj-controls .bet-row { flex-wrap: wrap; justify-content: center; }
+@media (max-width: 420px) { .bj-table { padding: .8rem; border-width: 4px; } .bj-table .card { width: 52px; height: 76px; } .bj-trumps label { flex-basis: 100%; } }

@@ -33,7 +33,7 @@
         <div class="bjmp-lobby" id="bjmpLobby">
             <button class="btn btn-primary" id="createTableBtn">🃏 Criar mesa</button>
             <div class="bjmp-join">
-                <input type="text" id="joinCode" placeholder="CÓDIGO" maxlength="5">
+                <input type="text" id="joinCode" placeholder="CÓDIGO" maxlength="6">
                 <button class="btn btn-outline" id="joinTableBtn">Entrar</button>
             </div>
         </div>
@@ -42,10 +42,18 @@
             <div class="bjmp-header">
                 <span>Mesa: <strong class="accent" id="tableCode">—</strong></span>
                 <span class="muted">Limite: <strong id="tableLimit">21</strong></span>
+                <span>Pote: <strong id="bjPot">0 AC</strong></span>
                 <button class="btn btn-primary hidden" id="startBtn">▶ Iniciar rodada</button>
             </div>
 
             <div class="bjmp-players" id="playersRow"></div>
+            <div id="bjRoundResult" class="bj-round-result" role="status"></div>
+            <div class="bjmp-bets" id="bjBetRow">
+                <label>Aposta Coop<input id="bjWager" type="number" value="100" min="10" step="1"></label>
+                <button class="btn btn-primary" id="bjBetBtn">Confirmar aposta</button>
+                <button class="btn btn-outline" id="bjPracticeBtn">Sem aposta</button>
+                <span id="bjBetStatus" role="status"></span>
+            </div>
 
             <div class="bjmp-actions hidden" id="actionsRow">
                 <button class="btn btn-primary" id="hitBtn">Comprar (Hit)</button>

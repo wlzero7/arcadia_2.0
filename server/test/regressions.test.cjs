@@ -339,7 +339,8 @@ test("roulette room pending bets survive hydration", () => {
 });
 test("duel requires ready players, locks selected mode and conserves credits", () => {
     const a = user(), b = user(), io = new FakeIO();
-    require("../src/realtime/duels").setupDuels(io);
+    const duelRealtime = require("../src/realtime/duels");
+    duelRealtime.setupDuels(io);
     const p1 = io.connect(a, "player_one"), p2 = io.connect(b, "player_two");
     const duel = p1.call("duel:create").duel;
     p2.call("duel:join", { code: duel.code }); p1.call("duel:ready"); p2.call("duel:ready"); p1.call("duel:ready");
@@ -348,6 +349,10 @@ test("duel requires ready players, locks selected mode and conserves credits", (
     assert.equal(p1.call("duel:play", { game: "mines", wager: 10, choice: { picks: 1 } }).ok, false);
     const sum = balance(a, "duel") + balance(b, "duel");
     assert.equal(p1.call("duel:play", { game: "dice", wager: 10, choice: { number: 1 } }).ok, true);
+    const lastPlay = duelRealtime.duels.get(duel.code).lastPlay;
+    assert.equal(lastPlay.game, "dice");
+    assert.equal(lastPlay.choice.number, 1);
+    assert.equal(typeof lastPlay.id, "string");
     assert.equal(balance(a, "duel") + balance(b, "duel"), sum);
     assert.equal(p1.call("duel:play", { game: "dice", wager: 10, choice: { number: 1 } }).ok, false);
     assert.equal(p1.callWithoutData("duel:leave").ok, true);
@@ -388,6 +393,9 @@ test("multiplayer Blackjack delivers private cards, enforces turns and charges s
     const table = tables.get(code), actor = table.players.get(a), opponent = table.players.get(b);
     actor.specials = ["shield", "pick_card"];
     opponent.specials = ["force_hit"];
+    const bjCards = require("../src/services/blackjack");
+    for (const key of actor.specials) bjCards.addCard(a, key);
+    for (const key of opponent.specials) bjCards.addCard(b, key);
     assert.equal(p2.call("bj:special", { cardKey: "force_hit", targetId: a }).ok, false);
     assert.equal(opponent.specials.length, 1);
     assert.equal(p1.call("bj:special", { cardKey: "shield" }).ok, true);
