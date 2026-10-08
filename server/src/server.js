@@ -91,6 +91,7 @@ app.use("/api/games", gameRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/friends", friendsRoutes);
 app.use("/api/community", require("./routes/community.routes"));
+app.use("/api/ams", require("./routes/ams.routes").createAmsRouter());
 app.use("/api/games", blackjackRoutes);
 app.use("/api/games", rouletteRoutes);
 app.use("/api/progression", progression.router);

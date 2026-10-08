@@ -34,6 +34,15 @@ CREATE TABLE IF NOT EXISTS users (
     avatar TEXT DEFAULT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS account_controls (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    suspended INTEGER NOT NULL DEFAULT 0 CHECK(suspended IN (0,1)),
+    revision INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS ams_command_receipts (
+    id TEXT PRIMARY KEY,command TEXT NOT NULL,result TEXT NOT NULL,
+    actor_name TEXT NOT NULL,reason TEXT NOT NULL,created_at INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS wallets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

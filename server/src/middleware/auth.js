@@ -16,6 +16,7 @@ function verifySession(token) {
     const payload = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
     const user = pool.db.get("SELECT id, username, token_version FROM users WHERE id = ?", [payload.id]);
     if (!user || user.username !== payload.username || (payload.v || 0) !== user.token_version) throw new Error("Sessão inválida.");
+    if (pool.db.get("SELECT suspended FROM account_controls WHERE user_id=?",[user.id])?.suspended) throw new Error("Conta suspensa.");
     return user;
 }
 function authenticate(req, res, next) {

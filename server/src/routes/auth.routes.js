@@ -100,6 +100,9 @@ router.post("/login", async (req, res) => {
         if (!ok) {
             return res.status(401).json({ status: "error", message: "E-mail ou senha incorretos." });
         }
+        if (pool.db.get("SELECT suspended FROM account_controls WHERE user_id=?",[user.id])?.suspended) {
+            return res.status(403).json({status:"error",message:"Conta suspensa. Entre em contato com o suporte."});
+        }
 
         trackLoginActivity(user.id);
         issueSession(res, user);

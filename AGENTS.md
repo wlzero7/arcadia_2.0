@@ -44,3 +44,14 @@ orientacao posterior diferente do usuario.
 - A conquista Reportador de Bugs e os 10.000 XP so sao concedidos depois
   da aprovacao do desenvolvedor pela conta wl07, nunca pelo simples envio.
 - A aprovacao e a recompensa devem ser autorizadas e unicas no servidor.
+
+## Integracao AMS em teste local (8 de outubro de 2026)
+
+- O proprietario autorizou preparar e testar a API de gerenciamento de contas
+  em branch separada, somente localmente, sem publicar ou alterar dados reais.
+- Essa autorizacao especifica prevalece sobre a preferencia permanente de main
+  para o conector AMS. Manter feature/ams-account-bridge sem push ou deploy.
+- A entrega oficial de futebol e comunidade ja foi publicada em main no commit
+  3d69ce3 e verificada no Render. Nao confundir com o novo conector local.
+- Conector desativado sem chave publica Ed25519. Operacoes devem manter MFA,
+  justificativa, confirmacao no AMS, idempotencia, atomicidade e auditoria.
