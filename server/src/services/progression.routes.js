@@ -5,28 +5,12 @@
 
 const pool = require("../config/database");
 const { grantXP } = require("./progression");
+const { ACHIEVEMENTS, unlockAchievement, checkGameAchievements, checkProfileAchievements } = require("./achievements");
 
 // ========================================
 // CONQUISTAS — catálogo por chave (nome/editável depois)
 // ========================================
 
-const ACHIEVEMENTS = {
-    first_bet: { xp: 50 },
-    first_win: { xp: 100 },
-    hot_streak: { xp: 250 },       // 5 vitórias seguidas
-    high_roller: { xp: 300 },      // aposta >= 1000 AC
-    mines_master: { xp: 400 },     // cashout mines >= 5x
-    crash_100: { xp: 500 },        // cashout crash >= 10x
-    blackjack_natural: { xp: 300 },// blackjack natural
-    roulette_lucky: { xp: 350 },   // pleno vencedor na roleta
-    social_butterfly: { xp: 200 }, // 5 amigos
-    room_host: { xp: 150 },        // criou uma sala
-    duel_winner: { xp: 400 },      // venceu um duelo
-    horse_backer: { xp: 150 },     // apostou numa corrida
-    level_10: { xp: 0 },
-    level_50: { xp: 0 },
-    level_100: { xp: 0 },
-};
 
 // ========================================
 // MISSÕES — diárias e semanais (chaves genéricas)
@@ -69,48 +53,6 @@ const MISSIONS = {
 // CONQUISTAS
 // ========================================
 
-function unlockAchievement(userId, key) {
-    if (!Object.hasOwn(ACHIEVEMENTS, key)) return null;
-    return pool.transactionSync(() => {
-        const res = pool.db.get("SELECT 1 FROM user_achievements WHERE user_id = ? AND achievement_key = ?", [userId, key]);
-        if (res) return null;
-        pool.db.run("INSERT INTO user_achievements (user_id, achievement_key) VALUES (?, ?)", [userId, key]);
-        const xp = ACHIEVEMENTS[key].xp || 0;
-        let levelInfo = null;
-        if (xp > 0) levelInfo = grantXP(userId, xp);
-        return { key, xp, levelInfo };
-    });
-}
-
-// Checagens automáticas após eventos de jogo
-function checkGameAchievements(userId, { game, outcome, multiplier, wager, detail }) {
-    const unlocked = [];
-
-    const a = (k) => {
-        const r = unlockAchievement(userId, k);
-        if (r) unlocked.push(r);
-    };
-
-    a("first_bet");
-    if (outcome === "win") a("first_win");
-    if (wager >= 1000) a("high_roller");
-    if (game === "mines" && outcome === "win" && multiplier >= 5) a("mines_master");
-    if (game === "crash" && outcome === "win" && multiplier >= 10) a("crash_100");
-    const recent = pool.db.all("SELECT outcome FROM bets WHERE user_id = ? ORDER BY id DESC LIMIT 5", [userId]);
-    if (recent.length === 5 && recent.every((bet) => bet.outcome === "win")) a("hot_streak");
-    if (game === "blackjack" && outcome === "win" && multiplier >= 2.5) a("blackjack_natural");
-    if (game === "roulette" && detail && detail.results && detail.results.some((r) => r.type === "straight" && r.won)) a("roulette_lucky");
-
-    // level milestones
-    const user = pool.db.get("SELECT level FROM users WHERE id = ?", [userId]);
-    if (user) {
-        if (user.level >= 10) a("level_10");
-        if (user.level >= 50) a("level_50");
-        if (user.level >= 100) a("level_100");
-    }
-
-    return unlocked;
-}
 
 // ========================================
 // MISSÕES
@@ -159,6 +101,7 @@ function progressMission(userId, key, amount = 1, now = new Date()) {
         "UPDATE user_missions SET progress = ?, completed = ? WHERE user_id = ? AND mission_key = ? AND period = ?",
         [Math.min(progress, m.target), completed, userId, key, period]
     );
+    if (completed) checkProfileAchievements(userId);
 }
 
 // Hooks de jogo
@@ -209,6 +152,7 @@ function trackRoomActivity(userId, roomCode, now = new Date()) {
 function trackDuelActivity(userId, won = false) {
     progressMission(userId, "weekly_duel_1");
     if (won) progressMission(userId, "daily_duel_win");
+    checkProfileAchievements(userId);
 }
 
 // ========================================
@@ -221,6 +165,7 @@ const router = express.Router();
 
 // GET /api/progression/achievements
 router.get("/achievements", authenticate, (req, res) => {
+    checkProfileAchievements(req.user.id);
     const unlocked = pool.db.all(
         "SELECT achievement_key, unlocked_at FROM user_achievements WHERE user_id = ?",
         [req.user.id]
@@ -280,4 +225,35 @@ function claimMission(userId, key, now = new Date(), expectedPeriod) {
     });
 }
 
-module.exports = { router, unlockAchievement, checkGameAchievements, trackGameActivity, trackRoomActivity, trackDuelActivity, trackLoginActivity, claimMission, weekKey, todayKey, resets };
+function isBugReviewer(userId) {
+    const username = pool.db.get("SELECT username FROM users WHERE id = ?", [userId])?.username;
+    return String(username).toLowerCase() === "wl07";
+}
+router.get("/bugs", authenticate, (req, res) => {
+    const canReview = isBugReviewer(req.user.id);
+    const reports = pool.db.all(`SELECT b.*, u.username FROM bug_reports b JOIN users u ON u.id = b.user_id ${canReview ? "" : "WHERE b.user_id = ?"} ORDER BY b.id DESC LIMIT 100`, canReview ? [] : [req.user.id]);
+    res.json({ status: "success", canReview, reports });
+});
+router.post("/bugs", authenticate, (req, res) => {
+    const title = String(req.body?.title || "").trim();
+    const description = String(req.body?.description || "").trim();
+    if (title.length < 5 || title.length > 120 || description.length < 20 || description.length > 4000) return res.status(400).json({ status: "error", message: "Título: 5 a 120 caracteres. Relato: 20 a 4.000 caracteres." });
+    const pending = pool.db.get("SELECT COUNT(*) AS n FROM bug_reports WHERE user_id = ? AND status = 'pending'", [req.user.id]).n;
+    if (pending >= 5) return res.status(400).json({ status: "error", message: "Você já tem cinco relatos aguardando análise." });
+    const result = pool.db.run("INSERT INTO bug_reports (user_id, title, description) VALUES (?, ?, ?)", [req.user.id, title, description]);
+    res.json({ status: "success", id: Number(result.lastInsertRowid), message: "Relato enviado para análise." });
+});
+router.post("/bugs/:id/review", authenticate, (req, res) => {
+    if (!isBugReviewer(req.user.id)) return res.status(403).json({ status: "error", message: "Somente o desenvolvedor pode analisar relatos." });
+    const status = req.body?.approved === true ? "approved" : req.body?.approved === false ? "rejected" : null;
+    if (!status) return res.status(400).json({ status: "error", message: "Escolha aprovar ou rejeitar." });
+    const result = pool.transactionSync(() => {
+        const report = pool.db.get("SELECT * FROM bug_reports WHERE id = ?", [Number(req.params.id)]);
+        if (!report || report.status !== "pending") return null;
+        pool.db.run("UPDATE bug_reports SET status = ?, reviewed_by = ? WHERE id = ?", [status, req.user.id, report.id]);
+        return { unlocked: status === "approved" ? unlockAchievement(report.user_id, "bug_reporter") : null };
+    });
+    if (!result) return res.status(409).json({ status: "error", message: "Relato inexistente ou já analisado." });
+    res.json({ status: "success", ...result });
+});
+module.exports = { router, ACHIEVEMENTS, unlockAchievement, checkGameAchievements, checkProfileAchievements, trackGameActivity, trackRoomActivity, trackDuelActivity, trackLoginActivity, claimMission, weekKey, todayKey, resets };

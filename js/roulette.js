@@ -53,6 +53,7 @@
     }
 
     function addBet(type, value) {
+        if (ArcadiaWallet.isAllWin()) bets.length = 0;
         const existing = bets.find((b) => b.type === type && b.value === value);
         if (existing) existing.amount += chipValue;
         else bets.push({ type, value, amount: chipValue });
@@ -70,7 +71,8 @@
                 const div = document.createElement("div");
                 div.className = "bet-chip";
                 const label = b.type === "straight" ? `${TYPE_LABEL[b.type]} ${b.value}` : TYPE_LABEL[b.type];
-                div.innerHTML = `<span>${label}</span><span>${b.amount} AC <span class="remove" data-i="${i}">✕</span></span>`;
+                const amount = ArcadiaWallet.isAllWin() && bets.length === 1 ? ArcadiaWallet.getCached() : b.amount;
+                div.innerHTML = `<span>${label}</span><span>${amount.toLocaleString("pt-BR")} AC <span class="remove" data-i="${i}">✕</span></span>`;
                 box.appendChild(div);
             });
             box.querySelectorAll(".remove").forEach((x) => {
@@ -84,8 +86,10 @@
                 });
             });
         }
-        $("totalBet").textContent = bets.reduce((s, b) => s + b.amount, 0).toLocaleString("pt-BR") + " AC";
+        const total = ArcadiaWallet.isAllWin() && bets.length === 1 ? ArcadiaWallet.getCached() : bets.reduce((s, b) => s + b.amount, 0);
+        $("totalBet").textContent = total.toLocaleString("pt-BR") + " AC";
     }
+    document.addEventListener("arcadia:all-win", renderBets);
 
     // clique na mesa
     document.querySelector(".rl-table").addEventListener("click", (e) => {

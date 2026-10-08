@@ -5,12 +5,14 @@ const store = require("../services/realtimeStore");
 const { wager, recordBet } = require("../services/rounds");
 const roulette = require("../services/roulette");
 const { TRUMPS, resolveSpin, rollCardDrop } = require("../services/slotsEngine");
+const bj = require("../services/blackjack");
 const { unlockAchievement, trackDuelActivity } = require("../services/progression.routes");
 const duels = store.load("duel");
-const MODES = ["dice", "coinflip", "crash", "mines", "roulette", "slots"];
+const MODES = ["dice", "coinflip", "crash", "mines", "roulette", "slots", "blackjack"];
 
 function activeState(play) {
     if (!play) return null;
+    if (play.game === "blackjack") return { id: play.id, game: play.game, playerKey: play.playerKey, username: play.username, wager: play.wager, startedAt: play.startedAt, ...bj.publicHand(play) };
     const multiplier = play.game === "mines" ? minesMultiplier(play.mines.length, play.picked.length)
         : Math.floor(crashMultiplier(play.startedAt) * 100) / 100;
     return { id: play.id, game: play.game, playerKey: play.playerKey, username: play.username, wager: play.wager,
@@ -54,7 +56,7 @@ function publicChoice(game, choice = {}) {
 function playGame(game, amount, choice = {}) {
     if (game === "dice" || game === "coinflip") return GAMES[game].play(amount, choice);
     if (game === "roulette") {
-        const bet = roulette.validateBet({ type: choice.bet ?? "red", amount });
+        const bet = roulette.validateBet({ type: choice.bet ?? "red", amount }, 1, Number.MAX_SAFE_INTEGER);
         const result = roulette.spin([bet]);
         return { payout: result.totalPayout, detail: result };
     }
@@ -73,11 +75,13 @@ function settlePlay(duel, key, amount, raw, choice = {}, trump = null, id = null
     const result = { outcome, multiplier: (charged + transfer) / charged, payout: charged + transfer, detail: raw.detail };
     const cancelled = raw.payout === amount && (raw.detail?.cancelled || (duel.chosenGame === "mines" && !raw.detail?.opened?.length));
     if (cancelled) result.cancelled = true;
-    else recordBet(actor.userId, "duel", charged, result.payout, outcome, { ...raw.detail, game: duel.chosenGame, duelCode: duel.code });
+    else recordBet(actor.userId, "duel", charged, result.payout, outcome, { ...raw.detail, ...raw.detail?.detail, allWin: duel.activePlay?.allWin ?? (charged === wallet.balance), baseWager: amount, game: duel.chosenGame, duelCode: duel.code });
     if (duel.chosenGame === "slots") {
         result.card = rollCardDrop(true);
         if (result.card) pool.db.run("INSERT INTO slots_cards (user_id, card_key, rarity) VALUES (?, ?, ?)", [actor.userId, result.card.key, result.card.rarity]);
+        require("../services/achievements").checkProfileAchievements(actor.userId);
     }
+    if (duel.chosenGame === "blackjack" && !cancelled) result.card = bj.drop(actor.userId);
     syncBalances(duel);
     duel.lastPlay = { id: id || `${duel.code}:${duel.round}:${code()}`, round: duel.round, game: duel.chosenGame,
         playerKey: key, username: actor.username, wager: amount, charged, transfer, outcome,
@@ -108,7 +112,8 @@ function finishDuel(duel, winnerKey) {
     const winner = duel.players[winnerKey], loser = duel.players[winnerKey === "p1" ? "p2" : "p1"];
     pool.db.run("INSERT INTO duel_stats (user_id, wins, losses) VALUES (?, 1, 0) ON CONFLICT(user_id) DO UPDATE SET wins = wins + 1", [winner.userId]);
     pool.db.run("INSERT INTO duel_stats (user_id, wins, losses) VALUES (?, 0, 1) ON CONFLICT(user_id) DO UPDATE SET losses = losses + 1", [loser.userId]);
-    unlockAchievement(winner.userId, "duel_winner");
+    unlockAchievement(winner.userId, "first_victory");
+    unlockAchievement(loser.userId, "first_defeat");
     trackDuelActivity(winner.userId, true); trackDuelActivity(loser.userId);
     pushLog(duel, winner.username + " venceu o duelo!");
 }
@@ -256,20 +261,22 @@ function setupDuels(io) {
             const game = duel.chosenGame;
             if (data.game && data.game !== game) throw new Error("Jogue o modo escolhido no leilão.");
             const wallet = pool.getWalletSync(socket.userId, "duel");
-            let amount = wager(data.wager);
+            let amount = data.allWin === true ? wager(wallet.balance, 1, Number.MAX_SAFE_INTEGER) : wager(data.wager);
             const trump = game === "slots" ? data.choice?.trump || null : null;
             if (trump && !Object.hasOwn(TRUMPS, trump)) throw new Error("Trunfo inválido.");
             if (trump === "allwin") amount = wallet.balance;
             const maximum = amount * (trump === "duplicador" ? 2 : 1);
             if (wallet.balance < maximum) throw new Error("Saldo DUEL insuficiente para a perda máxima.");
-            if (game === "mines" || game === "crash") {
+            if (game === "mines" || game === "crash" || game === "blackjack") {
                 const play = { id: `${duel.code}:${duel.round}:${code()}`, game, playerKey: key, username: socket.username,
-                    wager: amount, startedAt: Date.now() };
+                    wager: amount, allWin: amount === wallet.balance, startedAt: Date.now() };
                 if (game === "mines") {
                     const count = Number(data.choice?.mines ?? 5);
                     if (!Number.isInteger(count) || count < 1 || count > 24) throw new Error("Número de minas inválido.");
                     play.mines = shuffle(Array.from({ length: 25 }, (_, i) => i)).slice(0, count);
                     play.picked = [];
+                } else if (game === "blackjack") {
+                    Object.assign(play, bj.createHand());
                 } else {
                     const target = data.choice?.autoCashout;
                     play.autoCashout = target == null || target === "" ? null : Number(target);
@@ -279,6 +286,7 @@ function setupDuels(io) {
                 duel.activePlay = play;
                 duel.lastPlay = null;
                 pushLog(duel, socket.username + " iniciou " + game + ".");
+                if (game === "blackjack" && (bj.handValue(play.player) === 21 || bj.handValue(play.dealer) === 21)) return { result: finishBlackjack(duel, play, true) };
                 return { active: true };
             }
             if (trump) {
@@ -286,7 +294,7 @@ function setupDuels(io) {
                 if (!owned) throw new Error("Você não possui esse trunfo.");
                 pool.db.run("DELETE FROM slots_cards WHERE id = ?", [owned.id]);
             }
-            const spin = game === "slots" ? resolveSpin({ wager: amount, trump }) : null;
+            const spin = game === "slots" ? resolveSpin({ wager: amount, trump, mode: "duel" }) : null;
             const raw = spin ? { payout: spin.payout, detail: spin } : playGame(game, amount, data.choice);
             return { result: settlePlay(duel, key, amount, raw, data.choice || {}, trump) };
         });
@@ -309,9 +317,27 @@ function setupDuels(io) {
             return settlePlay(duel, play.playerKey, play.wager, { payout: Math.floor(play.wager * multiplier),
                 detail: { minePositions: play.mines, opened: play.picked, multiplier } }, { mines: play.mines.length }, null, play.id);
         }
+        function finishBlackjack(duel, play, natural = false) {
+            return settlePlay(duel, play.playerKey, play.wager, bj.result(play, natural), {}, null, play.id);
+        }
+        for (const action of ["hit", "stand", "double", "special"]) on("duel:" + action, (data) => {
+            const duel = current(), key = participant(duel), play = duel.activePlay;
+            if (duel.phase !== "playing" || play?.game !== "blackjack" || play.playerKey !== key) throw new Error("Nao e sua vez no Blackjack.");
+            if (action === "special") bj.useSpecial(socket.userId, play, data);
+            else if (action === "hit") bj.drawPlayer(play);
+            else if (action === "double") {
+                if (!bj.publicHand(play).canDouble) throw new Error("Dobrar so com as duas cartas iniciais.");
+                if (pool.getWalletSync(socket.userId, "duel").balance < play.wager * 2) throw new Error("Saldo DUEL insuficiente para dobrar.");
+                play.wager *= 2; play.doubled = true; bj.drawPlayer(play);
+                if (bj.handValue(play.player, play.limit) <= play.limit) bj.stand(play);
+            } else bj.stand(play);
+            if (action === "stand" || action === "double" || bj.handValue(play.player, play.limit) > play.limit) return { result: finishBlackjack(duel, play) };
+            return {};
+        });
         on("duel:cashout", () => {
             const duel = current(), key = participant(duel), play = duel.activePlay;
             if (duel.phase !== "playing" || !play || play.playerKey !== key) throw new Error("Nenhuma jogada sua em andamento.");
+            if (play.game === "blackjack") throw new Error("Use Parar no Blackjack.");
             return { result: play.game === "mines" ? cashoutMines(duel, play) : updateCrash(duel, true) };
         });
         on("duel:sync", () => { const duel = current(); updateCrash(duel); return {}; });

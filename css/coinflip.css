@@ -20,6 +20,8 @@
 .coin-choices input:checked + span { border-color: #f9dc7c; background: #332d1b; color: #f9dc7c; }
 .coin-choices input:focus-visible + span { outline: 2px solid #71d6bd; outline-offset: 3px; }
 .coin-wager { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
+.coin-wager #coinPlay { grid-column: 1 / -1; }
+.coin-wager .all-win-button[aria-pressed="true"], .coin-wager .all-win-button[aria-pressed="true"]:hover { background: #235a3f; color: #fff; border-color: #66cd97; }
 .coin-wager input { width: 100%; min-width: 0; }
 .coin-wager .btn { background: #eac35c; color: #171c17; border-radius: 6px; min-height: 46px; }
 .coin-message { min-height: 52px; padding-top: 18px; line-height: 1.6; overflow-wrap: anywhere; }

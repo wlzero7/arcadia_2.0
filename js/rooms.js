@@ -86,6 +86,7 @@ const Rooms = (() => {
         $("mRoomName").textContent = room.name;
         $("mRoomCode").textContent = room.code;
         $("mPot").textContent = ArcadiaWallet.format(room.pot);
+        ArcadiaWallet.setPoolBalance(room.pot);
 
         const me = ArcadiaAPI.getUser();
         const list = $("mPlayers");
@@ -152,7 +153,7 @@ const Rooms = (() => {
             }
             $("mpPlay").addEventListener("click", () => {
                 if (!selectedDice) return toastMsg("Escolha um número!");
-                socket.emit("room:play", { wager: Number($("mpBet").value), choice: { number: selectedDice } }, (r) => {
+                socket.emit("room:play", { allWin: ArcadiaWallet.isAllWin("mpBet"), wager: Number($("mpBet").value), choice: { number: selectedDice } }, (r) => {
                     if (!r.ok) toastMsg(r.error);
                 });
             });
@@ -179,7 +180,7 @@ const Rooms = (() => {
             });
             $("mpPlay").addEventListener("click", () => {
                 if (!selectedSide) return toastMsg("Escolha um lado!");
-                socket.emit("room:play", { wager: Number($("mpBet").value), choice: { side: selectedSide } }, (r) => {
+                socket.emit("room:play", { allWin: ArcadiaWallet.isAllWin("mpBet"), wager: Number($("mpBet").value), choice: { side: selectedSide } }, (r) => {
                     if (!r.ok) toastMsg(r.error);
                 });
             });
@@ -222,6 +223,7 @@ const Rooms = (() => {
                         type: b.dataset.rt,
                         value: b.dataset.rv != null ? Number(b.dataset.rv) : null,
                         amount: Number($("mpBet").value),
+                        allWin: ArcadiaWallet.isAllWin("mpBet"),
                     }, (r) => { if (!r.ok) toastMsg(r.error); });
                 });
             });
@@ -242,6 +244,7 @@ const Rooms = (() => {
             $("mpPlay").addEventListener("click", () => {
                 socket.emit("room:play", {
                     wager: Number($("mpBet").value),
+                    allWin: ArcadiaWallet.isAllWin("mpBet"),
                     choice: { autoCashout: Number($("mpTarget").value) || 2 },
                 }, (r) => {
                     if (!r.ok) toastMsg(r.error);
@@ -261,27 +264,30 @@ const Rooms = (() => {
                 </div>
                 <div class="game-result" id="mpResult"></div>
             `;
-            // carrega o inventário de trunfos do jogador
-            if (ArcadiaAPI.isLoggedIn()) {
-                ArcadiaAPI.request("/api/games/slots/cards").then((data) => {
-                    const sel = $("mpTrump");
-                    (data.inventory || []).forEach((c) => {
-                        const opt = document.createElement("option");
-                        opt.value = c.key;
-                        opt.textContent = `${c.name} (x${c.qty})`;
-                        sel.appendChild(opt);
-                    });
-                }).catch(() => {});
-            }
+            loadSlotsTrumps();
             $("mpPlay").addEventListener("click", () => {
                 socket.emit("room:play", {
                     wager: Number($("mpBet").value),
+                    allWin: ArcadiaWallet.isAllWin("mpBet"),
                     choice: { trump: $("mpTrump").value || undefined },
                 }, (r) => {
                     if (!r.ok) toastMsg(r.error);
                 });
             });
         }
+    }
+
+    async function loadSlotsTrumps() {
+        if (!ArcadiaAPI.isLoggedIn()) return;
+        try {
+            const data = await ArcadiaAPI.request("/api/games/slots/cards");
+            const sel = $("mpTrump");
+            if (!sel) return;
+            const previous = sel.value;
+            sel.replaceChildren(new Option("Nenhum", ""));
+            (data.inventory || []).forEach((c) => sel.add(new Option(`${c.name} (x${c.qty})`, c.key)));
+            if ([...sel.options].some((o) => o.value === previous)) sel.value = previous;
+        } catch (error) { toastMsg(error.message); }
     }
 
     function renderGameResult(round) {
@@ -313,6 +319,7 @@ const Rooms = (() => {
             $("mpCrash").textContent = round.outcome === "win" ? "🚀" : "💥";
 
         } else if (round.type === "slots") {
+            loadSlotsTrumps();
             const reelsText = Array.isArray(round.reels) ? round.reels.join(" ") : "🎰";
             el.textContent = round.outcome === "win"
                 ? `🎰 ${reelsText} — ${escapeHtml(round.playerName)} ganhou ${ArcadiaWallet.format(round.payout)}!`
@@ -392,7 +399,7 @@ const Rooms = (() => {
     });
 
     $("stakeBtn").addEventListener("click", () => {
-        socket.emit("room:stake", { amount: Number($("stakeAmount").value) }, (r) => {
+        socket.emit("room:stake", { allWin: ArcadiaWallet.isAllWin("stakeAmount"), amount: Number($("stakeAmount").value) }, (r) => {
             if (r.ok) { toastMsg("Depositado no pote! 🎰"); $("stakeAmount").value = ""; ArcadiaWallet.refresh(); }
             else toastMsg(r.error);
         });

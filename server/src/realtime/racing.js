@@ -2,7 +2,6 @@ const pool = require("../config/database");
 const { code, random, randomInt, shuffle } = require("../services/random");
 const store = require("../services/realtimeStore");
 const { wager, recordBet } = require("../services/rounds");
-const { unlockAchievement } = require("../services/progression.routes");
 const HORSE_NAMES = ["Barry", "Clade", "Lucy", "Nicolas", "Augusto", "Pé de Vento", "Trovão", "Biscate", "Cometa", "Fuscão Preto", "Relâmpago", "Maradona"];
 const races = store.load("race");
 const timers = new Map();
@@ -41,7 +40,8 @@ function setupRacing(io) {
                     pool.adjustBalanceSync(wallet.id, payout, "room_payout", "race", race.code);
                     payouts.push({ userId: uid, username: b.username, payout });
                 }
-                recordBet(uid, "racing", b.amount, payout, payout > b.amount ? "win" : "loss", { horseId: b.horseId, winnerId: winner.id });
+                const horse = race.horses.find((h) => h.id === b.horseId);
+                recordBet(uid, "racing", b.amount, payout, payout > b.amount ? "win" : "loss", { horseId: b.horseId, winnerId: winner.id, horseName: horse.name, horseOdds: odds(race).find((o) => o.id === horse.id).mult, maxOdds: Math.max(...odds(race).map((o) => o.mult)), allWin: b.allWin === true, mode: "coop" });
             }
             settled.result = { winner, odds: winnerOdds, payouts };
             store.save("race", settled);
@@ -127,16 +127,16 @@ function setupRacing(io) {
         on("race:bet", (data) => {
             const race = current();
             if (race.phase !== "betting") throw new Error("Apostas fechadas.");
-            const horseId = Number(data.horseId), amount = wager(data.amount);
+            const horseId = Number(data.horseId);
             if (!Number.isInteger(horseId) || !race.horses.some((h) => h.id === horseId)) throw new Error("Cavalo inválido.");
             const wallet = pool.getWalletSync(socket.userId, "coop");
             const prior = race.bets.get(socket.userId)?.amount || 0;
+            const amount = wager(data.allWin === true ? wallet.balance + prior : data.amount, data.allWin === true ? 1 : 10, data.allWin === true ? Number.MAX_SAFE_INTEGER : 1000000);
             if (wallet.balance + prior < amount) throw new Error("Saldo COOP insuficiente.");
             if (prior) pool.adjustBalanceSync(wallet.id, prior, "room_refund", "race", race.code);
             pool.adjustBalanceSync(wallet.id, -amount, "room_stake", "race", race.code);
             race.pot += amount - prior;
-            race.bets.set(socket.userId, { horseId, amount, username: socket.username });
-            unlockAchievement(socket.userId, "horse_backer");
+            race.bets.set(socket.userId, { horseId, amount, allWin: amount === wallet.balance + prior, username: socket.username });
             return { race: raceState(race) };
         });
         on("race:withdraw", () => {

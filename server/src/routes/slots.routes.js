@@ -6,7 +6,7 @@ const rounds = require("../services/rounds");
 const router = express.Router();
 
 router.post("/play", authenticate, rounds.handler((req) => {
-    const wager = rounds.wager(req.body.wager);
+    const wager = rounds.resolveWager(req.user.id, { ...req.body, allWin: req.body.allWin === true || req.body.trump === "allwin" });
     const trump = req.body.trump || null;
     if (trump && (!Object.hasOwn(TRUMPS, trump) || TRUMPS[trump].duelOnly)) throw new Error("Trunfo inválido para o modo solo.");
     const wallet = pool.getWalletSync(req.user.id, "solo");
@@ -23,6 +23,7 @@ router.post("/play", authenticate, rounds.handler((req) => {
     const settled = rounds.settleInstant(req.user.id, "slots", charged, result.payout, outcome, { reels: result.reels, jackpot: result.jackpot, trump, baseWager: wager });
     const card = rollCardDrop(false);
     if (card) pool.db.run("INSERT INTO slots_cards (user_id, card_key, rarity) VALUES (?, ?, ?)", [req.user.id, card.key, card.rarity]);
+    require("../services/achievements").checkProfileAchievements(req.user.id);
     return { ...result, outcome, delta: result.payout - charged, ...settled, card };
 }));
 router.get("/cards", authenticate, rounds.handler((req) => {

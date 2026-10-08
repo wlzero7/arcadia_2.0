@@ -53,11 +53,50 @@
         data.achievements.forEach((a) => {
             const div = document.createElement("div");
             div.className = "achieve " + (a.unlocked ? "unlocked" : "locked");
-            div.innerHTML = `<span class="achieve-icon">${a.unlocked ? "🏆" : "🔒"}</span><span>${a.key}</span><span class="achieve-xp">+${a.xp} XP</span>`;
+            div.innerHTML = `<span class="achieve-icon">${a.unlocked ? "🏆" : "🔒"}</span><span class="achieve-copy"><strong>${ArcadiaAPI.escapeHtml(a.name)}</strong><small>${ArcadiaAPI.escapeHtml(a.desc)}</small></span><span class="achieve-xp">+${a.xp} XP</span>`;
             list.appendChild(div);
         });
     }
     // ---------- MISSÕES ----------
+    async function loadBugReports() {
+        let section = $("bugReports");
+        if (!section) {
+            section = document.createElement("section");
+            section.id = "bugReports";
+            section.className = "bug-reports";
+            section.innerHTML = `<h2>Relatos de bugs</h2><form id="bugForm"><label>Título<input name="title" minlength="5" maxlength="120" required></label><label>Relato<textarea name="description" minlength="20" maxlength="4000" rows="4" required></textarea></label><button class="btn btn-primary">Enviar relato</button><span id="bugStatus" role="status"></span></form><div id="bugList"></div>`;
+            document.querySelector(".profile-main").appendChild(section);
+            $("bugForm").addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const button = event.target.querySelector("button");
+                button.disabled = true;
+                try {
+                    const result = await ArcadiaAPI.request("/api/progression/bugs", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.target))) });
+                    $("bugStatus").textContent = result.message;
+                    event.target.reset(); await loadBugReports();
+                } catch (err) { $("bugStatus").textContent = err.message; }
+                finally { button.disabled = false; }
+            });
+        }
+        const data = await ArcadiaAPI.request("/api/progression/bugs");
+        $("bugList").replaceChildren();
+        const labels = { pending: "Aguardando análise", approved: "Aprovado", rejected: "Rejeitado" };
+        for (const report of data.reports) {
+            const row = document.createElement("article");
+            row.innerHTML = `<h3>${ArcadiaAPI.escapeHtml(report.title)}</h3><p>${ArcadiaAPI.escapeHtml(report.description)}</p><small>@${ArcadiaAPI.escapeHtml(report.username)} · ${labels[report.status]}</small>`;
+            if (data.canReview && report.status === "pending") for (const approved of [true, false]) {
+                const button = document.createElement("button");
+                button.className = "btn"; button.textContent = approved ? "Aprovar" : "Rejeitar";
+                button.addEventListener("click", async () => {
+                    button.disabled = true;
+                    try { await ArcadiaAPI.request(`/api/progression/bugs/${report.id}/review`, { method: "POST", body: JSON.stringify({ approved }) }); await loadBugReports(); }
+                    catch (err) { $("bugStatus").textContent = err.message; button.disabled = false; }
+                });
+                row.appendChild(button);
+            }
+            $("bugList").appendChild(row);
+        }
+    }
     async function loadMissions() {
         const data = await ArcadiaAPI.request("/api/progression/missions");
         const daily = $("missionsDaily");
@@ -294,8 +333,9 @@
         }
         try {
             renderAvatarPicker();
+            await loadAchievements();
             await loadMe();
-            loadAchievements();
+            loadBugReports();
             loadMissions();
             loadStats();
             loadFullStats();

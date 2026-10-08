@@ -13,7 +13,7 @@
         if (busy) return;
         if (!ArcadiaAPI.isLoggedIn()) return message("Entre na sua conta para jogar.");
         const wager = Number($("coinWager").value), side = document.querySelector('input[name="side"]:checked').value;
-        if (!Number.isSafeInteger(wager) || wager < 10 || wager > 1000000) return message("Aposta inteira de 10 a 1.000.000 AC.");
+        if (!ArcadiaWallet.isAllWin() && (!Number.isSafeInteger(wager) || wager < 10 || wager > 1000000)) return message("Aposta inteira de 10 a 1.000.000 AC.");
         const userId = ArcadiaAPI.getUser().id;
         busy = true; lock(true); message("Lan\u00e7ando moeda...");
         $("coinFace").classList.add("flipping");

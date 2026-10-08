@@ -139,7 +139,7 @@ function validateBet(bet) {
         return "A aposta deve utilizar ArcCoins inteiros.";
     }
 
-    if (bet < 10) {
+    if (bet < (ArcadiaWallet.isAllWin() ? 1 : 10)) {
         return "A aposta mínima é 10 AC.";
     }
 

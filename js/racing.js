@@ -77,8 +77,8 @@
         betBtn.addEventListener("click", () => {
             if (selectedHorse === null) return alert("Selecione um cavalo primeiro (clique em Apostar na pista)!");
             const amount = Number($("betAmount").value);
-            if (!Number.isFinite(amount) || amount < 10) return alert("Aposta mínima: 10 AC.");
-            socket.emit("race:bet", { horseId: selectedHorse, amount }, (r) => {
+            if (!ArcadiaWallet.isAllWin() && (!Number.isFinite(amount) || amount < 10)) return alert("Aposta mínima: 10 AC.");
+            socket.emit("race:bet", { allWin: ArcadiaWallet.isAllWin(), horseId: selectedHorse, amount }, (r) => {
                 if (!r.ok) alert(r.error);
                 else {
                     Sfx.chip();

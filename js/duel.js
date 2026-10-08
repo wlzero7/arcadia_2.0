@@ -21,8 +21,11 @@
     let actionPending = false;
     let liveAnimating = false;
     const liveTimers = new Set();
-    const GAME_ICON = { dice: "🎲", coinflip: "🪙", crash: "🚀", mines: "💣", roulette: "🎡", slots: "🎰" };
-    const GAME_LABEL = { dice: "Dados", coinflip: "Cara ou coroa", crash: "Crash", mines: "Mines", roulette: "Roleta", slots: "Slots" };
+    const GAME_ICON = { dice: "🎲", coinflip: "🪙", crash: "🚀", mines: "💣", roulette: "🎡", slots: "🎰", blackjack: "🃏" };
+    const GAME_LABEL = { dice: "Dados", coinflip: "Cara ou coroa", crash: "Crash", mines: "Mines", roulette: "Roleta", slots: "Slots", blackjack: "Blackjack" };
+    const bjTrumps = ArcadiaBlackjack.controls($("duelBlackjackTrumps"), (body) => new Promise((resolve, reject) => {
+        socket.emit("duel:special", body, (r) => { if (r.ok) resolve(); else reject(new Error(r.error)); });
+    }));
     const SIDE_LABEL = { heads: "Cara", tails: "Coroa" };
     const BET_LABEL = { red: "Vermelho", black: "Preto", even: "Par", odd: "Ímpar", low: "1-18", high: "19-36" };
 
@@ -99,7 +102,7 @@
         $("p1Balance").textContent = (d.p1.balance || 0).toLocaleString("pt-BR") + " AC";
         $("p2Name").textContent = d.p2 ? d.p2.username : "Aguardando...";
         $("p2Balance").textContent = d.p2 ? (d.p2.balance || 0).toLocaleString("pt-BR") + " AC" : "—";
-        if ($("walletBalance") && d[myKey]) $("walletBalance").textContent = fmtAC(d[myKey].balance);
+        if (d[myKey]) ArcadiaWallet.setCached(d[myKey].balance);
 
         $("p1Box").classList.toggle("my-turn", d.turn === "p1" && d.phase === "playing");
         $("p2Box").classList.toggle("my-turn", d.turn === "p2" && d.phase === "playing");
@@ -257,6 +260,7 @@
         return duel?.p1.userId === ArcadiaAPI.getUser()?.id ? "p1" : "p2";
     }
 
+    let blackjackInventoryRoom = "";
     function updateLiveControls() {
         if (!duel) return;
         const active = duel.activePlay;
@@ -268,9 +272,18 @@
             if ($(id)) $(id).disabled = !!active || actionPending || liveAnimating;
         });
         const cashout = $("cashoutBtn");
-        cashout.classList.toggle("hidden", !active || !ownTurn);
+        cashout.classList.toggle("hidden", !active || !ownTurn || active.game === "blackjack");
         cashout.disabled = locked;
         if (active) cashout.textContent = "Sacar " + fmtAC(active.potentialPayout);
+        const blackjack = active?.game === "blackjack";
+        $("duelBjActions").classList.toggle("hidden", !blackjack || !ownTurn);
+        for (const id of ["duelHit", "duelStand", "duelDouble"]) $(id).disabled = locked || !ownTurn || !blackjack || (id === "duelDouble" && (!active.canDouble || duel[ownKey()].balance < active.wager * 2));
+        $("duelBlackjackTrumps").classList.toggle("hidden", duel.chosenGame !== "blackjack");
+        if (duel.chosenGame === "blackjack" && blackjackInventoryRoom !== duel.code) {
+            blackjackInventoryRoom = duel.code;
+            bjTrumps.refresh();
+        }
+        bjTrumps.render({ ...(blackjack ? active : {}), canUse: blackjack && ownTurn && !locked });
         document.querySelectorAll("button.live-mine-cell").forEach((cell) => {
             cell.disabled = locked || !active || !ownTurn || active.picked.includes(Number(cell.dataset.cell));
         });
@@ -278,11 +291,16 @@
 
     function sendAction(event, data = {}) {
         if (actionPending || !socket?.connected) return;
+        const activeId = duel?.activePlay?.id;
         actionPending = true;
         updateLiveControls();
         socket.timeout(5000).emit(event, data, (err, result) => {
             actionPending = false;
             if (err || !result?.ok) {
+                if (activeId && duel?.lastPlay?.id === activeId) {
+                    if (!liveAnimating) finishLive(duel.lastPlay);
+                    updateLiveControls(); return;
+                }
                 $("duelLiveSummary").textContent = err ? "Conexão interrompida. Aguarde a atualização da sala." : result.error;
                 $("duelLiveSummary").className = "duel-live-summary loss";
                 if (err && socket.connected) socket.emit("duel:sync", {});
@@ -308,6 +326,7 @@
         if (multiplier) multiplier.textContent = Number(play.multiplier || 0).toFixed(2) + "x";
         updateLiveControls();
         if (play.game === "slots") loadTrumps();
+        if (play.game === "blackjack") bjTrumps.refresh();
         summary.className = "duel-live-summary " + cls;
         if (transfer > 0) {
             summary.textContent = `${play.username} venceu a jogada e puxou ${fmtAC(transfer)}.`;
@@ -325,7 +344,7 @@
         return `
             <div class="live-player-tag">${esc(play.username)} ${play.transfer == null ? "jogando" : "jogou"}</div>
             <div class="live-detail-grid">
-                <span>Aposta <strong>${fmtAC(play.wager)}</strong></span>
+                <span>Aposta <strong data-live-wager>${fmtAC(play.wager)}</strong></span>
                 <span>Saldo da jogada <strong data-live-balance>—</strong></span>
                 <span>Multiplicador <strong data-live-multiplier>—</strong></span>
             </div>
@@ -409,7 +428,10 @@
         stage.dataset.game = play.game;
         const summary = $("duelLiveSummary");
         summary.className = "duel-live-summary";
-        if (play.game === "mines") {
+        if (play.game === "blackjack") {
+            paintBlackjack(play, true);
+            summary.textContent = `${play.username}: ${play.playerTotal} pontos · limite ${play.limit}${play.note ? " · " + play.note : ""}`;
+        } else if (play.game === "mines") {
             const previous = new Set(Array.from(stage.querySelectorAll(".live-mine-cell.gem"), (cell) => Number(cell.dataset.cell)));
             stage.innerHTML = `${liveMeta(play)}<div class="live-mines-board">${Array.from({ length: 25 }, (_, i) =>
                 `<button class="live-mine-cell${play.picked.includes(i) ? " open gem" : ""}" data-cell="${i}" aria-label="Célula ${i + 1}" ${play.picked.includes(i) ? "disabled" : ""}>${play.picked.includes(i) ? "💎" : ""}</button>`).join("")}</div>`;
@@ -460,7 +482,8 @@
             summary.className = "duel-live-summary";
             summary.textContent = `${play.username} jogando ${GAME_LABEL[play.game] || play.game}...`;
         }
-        if (play.game === "dice") animateDice(play);
+        if (play.game === "blackjack") { paintBlackjack({ ...play, ...play.detail }, false); later(() => finishLive(play), 650); }
+        else if (play.game === "dice") animateDice(play);
         else if (play.game === "coinflip") animateCoinflip(play);
         else if (play.game === "crash") animateCrash(play);
         else if (play.game === "mines") animateMines(play);
@@ -470,6 +493,19 @@
             stage.innerHTML = `${liveMeta(play)}${renderIdleLive(play.game, "playing")}`;
             finishLive(play);
         }
+    }
+
+    function paintBlackjack(play, active) {
+        const stage = $("duelLiveStage");
+        if (stage.dataset.bjPlayId !== play.id || !stage.querySelector("[data-bj-hand]")) {
+            stage.dataset.bjPlayId = play.id;
+            stage.innerHTML = `${liveMeta(play)}<div class="live-bj-table"><h3>Dealer <span data-bj-dealer-total></span></h3><div class="cards" data-bj-dealer></div><h3>${esc(play.username)} <span data-bj-total></span></h3><div class="cards" data-bj-hand></div></div>`;
+        }
+        ArcadiaBlackjack.cards(stage.querySelector("[data-bj-hand]"), play.player || []);
+        stage.querySelector("[data-live-wager]").textContent = fmtAC(play.wager);
+        ArcadiaBlackjack.cards(stage.querySelector("[data-bj-dealer]"), play.dealer || []);
+        stage.querySelector("[data-bj-total]").textContent = play.playerTotal;
+        stage.querySelector("[data-bj-dealer-total]").textContent = play.dealerTotal + (active ? "+?" : "");
     }
 
     function animateDice(play) {
@@ -770,9 +806,10 @@
             if (trump) choice.trump = trump;
         }
 
-        sendAction("duel:play", { game: g, wager: Number($("wager").value), choice });
+        sendAction("duel:play", { allWin: ArcadiaWallet.isAllWin(), game: g, wager: Number($("wager").value), choice });
     });
     $("cashoutBtn").addEventListener("click", () => sendAction("duel:cashout"));
+    for (const [id, action] of [["duelHit","hit"],["duelStand","stand"],["duelDouble","double"]]) $(id).addEventListener("click", () => sendAction("duel:" + action));
 
     // ---------- INIT ----------
     (async () => {
@@ -780,6 +817,7 @@
         if (preferredGame && gameSelect) gameSelect.value = preferredGame;
         renderGameChoice();
         await loadTrumps();
+        await bjTrumps.refresh();
         await ArcadiaAPI.ready;
         if (ArcadiaAPI.isLoggedIn()) {
             await ArcadiaWallet.refresh();

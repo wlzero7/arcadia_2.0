@@ -6,56 +6,26 @@
 const pool = require("../config/database");
 const { random, code: secureCode } = require("../services/random");
 const store = require("../services/realtimeStore");
-const { trackGameActivity } = require("../services/progression.routes");
-const { grantXP } = require("../services/progression");
+const { recordBet } = require("../services/rounds");
+const bj = require("../services/blackjack");
+const { allocateShares } = require("../services/roomShares");
 
-const SUITS = ["♠", "♥", "♦", "♣"];
-const RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
-
-function newDeck() {
-    const deck = [];
-    for (const s of SUITS) for (const r of RANKS) deck.push({ rank: r, suit: s });
-    for (let i = deck.length - 1; i > 0; i--) {
-        const j = Math.floor(random() * (i + 1));
-        [deck[i], deck[j]] = [deck[j], deck[i]];
-    }
-    return deck;
-}
-
-function handValue(cards) {
-    let total = 0, aces = 0;
-    for (const c of cards) {
-        if (c.rank === "A") { aces++; total += 11; }
-        else if (["J", "Q", "K"].includes(c.rank)) total += 10;
-        else total += Number(c.rank);
-    }
-    while (total > 21 && aces > 0) { total -= 10; aces--; }
-    return total;
-}
+const { newDeck, handValue } = bj;
 
 // ========================================
 // CARTAS ESPECIAIS (v0.9)
 // raridades: comum, raro, super-raro, épico, lendária, cromática
 // ========================================
 
-const SPECIAL_CARDS = {
-    force_hit:        { rarity: "comum",     desc: "Force um adversário a comprar 1 carta", nrg: 1 },
-    remove_last:      { rarity: "raro",      desc: "Remova a última carta que um alvo comprou", nrg: 2 },
-    raise_limit_28:   { rarity: "raro",      desc: "Aumente o limite da mesa para 28", nrg: 2 },
-    lower_limit_17:   { rarity: "épico",     desc: "Reduza o limite da mesa para 17", nrg: 3 },
-    pick_card:        { rarity: "lendária",  desc: "Escolha uma carta específica do baralho", nrg: 4 },
-    draw_three:       { rarity: "super-raro",desc: "Compre 3 cartas (contam juntas)", nrg: 2 },
-    mirror:           { rarity: "cromática", desc: "Copie a última carta especial usada contra você de volta no emissor", nrg: 5 },
-    shield:           { rarity: "épico",     desc: "Anule a próxima carta especial contra você", nrg: 3 },
-};
+const SPECIAL_CARDS = bj.SPECIAL_CARDS;
 
 const RARITY_DROP = [
     ["comum", 50],
-    ["raro", 25],
-    ["super-raro", 15],
-    ["épico", 6],
-    ["lendária", 3],
-    ["cromática", 1],
+    ["rara", 25],
+    ["super_rara", 15],
+    ["epica", 6],
+    ["lendaria", 3],
+    ["cromatica", 1],
 ];
 
 function rollSpecialCard() {
@@ -77,6 +47,8 @@ function rollSpecialCard() {
 
 // tables[code] = { code, hostId, players: Map<userId, {...}>, deck, limit, order, turnIdx, phase, specialHand, discard }
 const tables = store.load("blackjack");
+const reconnectTimers = new Map();
+const present = (p) => p.socketIds.size > 0 || p.reconnectUntil > Date.now();
 
 function newTable(code, hostId) {
     return {
@@ -100,15 +72,20 @@ function tableState(t) {
         phase: t.phase,
         limit: t.limit,
         round: t.round,
+        pot: t.pot || 0,
+        results: t.phase === "finished" ? t.results || [] : [],
         players: [...t.players.entries()].map(([id, p]) => ({
             id,
             username: p.username,
             hand: p.hand,
-            total: handValue(p.hand),
+            total: handValue(p.hand, t.limit),
             stood: p.stood,
             busted: p.busted,
             nrg: p.nrg,
             specials: p.specials.length,
+            wager: p.wager || 0,
+            pendingWager: p.pendingBet?.amount || 0,
+            allWin: p.pendingBet?.allWin || false,
             online: p.socketIds.size > 0,
             isTurn: t.order[t.turnIdx] === id && t.phase === "playing",
         })),
@@ -128,8 +105,10 @@ function draw(t) {
 
 // Tenta compra de carta especial (30% ao comprar do monte)
 function maybeSpecial(t, player, io, code) {
-    if (random() < 0.3) {
-        const key = rollSpecialCard();
+    const uid = [...t.players].find(([,p]) => p === player)[0];
+    const card = bj.drop(uid);
+    if (card) {
+        const key = card.key;
         player.specials.push(key);
         io.to(`bj:${code}`).emit("bj:chat", {
             system: true,
@@ -145,10 +124,10 @@ function nextTurn(t, io, code) {
     do {
         t.turnIdx = (t.turnIdx + 1) % t.order.length;
         tries++;
-    } while (tries <= t.order.length && (t.players.get(t.order[t.turnIdx]).stood || t.players.get(t.order[t.turnIdx]).busted || !t.players.get(t.order[t.turnIdx]).socketIds.size));
+    } while (tries <= t.order.length && (t.players.get(t.order[t.turnIdx]).stood || t.players.get(t.order[t.turnIdx]).busted || !present(t.players.get(t.order[t.turnIdx]))));
 
     // todos pararam/estouraram?
-    const active = [...t.players.values()].filter((p) => !p.stood && !p.busted && p.socketIds.size);
+    const active = [...t.players.values()].filter((p) => !p.stood && !p.busted && present(p));
     if (active.length === 0 || tries > t.order.length) {
         finishRound(t, io, code);
         return;
@@ -165,27 +144,36 @@ function finishRound(t, io, code) {
     let best = null;
     for (const id of t.order) {
         const p = t.players.get(id);
-        const total = handValue(p.hand);
-        if (total <= t.limit && (!best || total > handValue(best.hand))) best = p;
+        const total = handValue(p.hand, t.limit);
+        if (total <= t.limit && (!best || total > handValue(best.hand, t.limit))) best = p;
     }
     const results = t.order.map((id) => {
         const p = t.players.get(id);
         return {
             id,
             username: p.username,
-            total: handValue(p.hand),
+            total: handValue(p.hand, t.limit),
             busted: p.busted,
-            won: !!best && !p.busted && handValue(p.hand) === handValue(best.hand),
+            won: !!best && !p.busted && handValue(p.hand, t.limit) === handValue(best.hand, t.limit),
         };
     });
 
     try {
         pool.transactionSync(() => {
             // Solo practice at an empty table does not advance multiplayer missions.
+            const winners = results.filter((r) => r.won);
+            const shares = allocateShares(new Map((winners.length ? winners : results).map((r) => [r.id, winners.length ? 1 : t.players.get(r.id).wager || 1])), t.pot || 0);
             if (t.order.length >= 2) for (const result of results) {
-                trackGameActivity(result.id, { game: "blackjack-mp", outcome: result.won ? "win" : "loss", wager: 0, detail: { tableCode: code } });
-                grantXP(result.id, 10);
+                const player = t.players.get(result.id);
+                const payout = shares.get(result.id) || 0, amount = player.wager || 0;
+                if (payout) pool.adjustBalanceSync(pool.getWalletSync(result.id, "coop").id, payout, "payout", "blackjack", code);
+                result.payout = payout;
+                const outcome = amount ? payout > amount ? "win" : payout === amount ? "push" : "loss" : result.won ? "win" : "loss";
+                result.wager = amount; result.outcome = outcome;
+                recordBet(result.id, "blackjack-mp", amount, payout, outcome, { tableCode: code, player: player.hand, playerTotal: result.total, hits: player.hits ?? Math.max(0, player.hand.length - 2), allWin: player.allWin === true });
             }
+            t.pot = 0;
+            t.results = results;
             store.save("blackjack", t);
         });
     } catch (error) { Object.assign(t, before); throw error; }
@@ -202,12 +190,17 @@ function finishRound(t, io, code) {
     setTimeout(() => {
         if (!tables.has(code) || t.phase !== "finished" || t.round !== finishedRound) return;
         if (![...t.players.values()].some((p) => p.socketIds.size)) { t.phase = "lobby"; broadcastTable(t, io); return; }
-        dealRound(t, true);
+        t.phase = "lobby";
         broadcastTable(t, io);
     }, 5000).unref();
 }
 
 function dealRound(t, restoreEnergy = false) {
+    const onlinePlayers = [...t.players].filter(([,p]) => p.socketIds.size);
+    const monetary = onlinePlayers.some(([,p]) => p.pendingBet);
+    if (monetary && (onlinePlayers.length < 2 || onlinePlayers.some(([,p]) => !p.pendingBet))) throw new Error("Todos os jogadores devem confirmar uma aposta, ou jogar sem apostas.");
+    t.pot = 0;
+    t.results = null;
     t.round++;
     t.limit = 21;
     t.deck = newDeck();
@@ -215,40 +208,114 @@ function dealRound(t, restoreEnergy = false) {
     t.order = [];
     for (const [id, p] of t.players) {
         const online = p.socketIds.size > 0;
+        p.wager = 0; p.allWin = false;
+        if (online && p.pendingBet) {
+            const wallet = pool.getWalletSync(id, "coop");
+            const amount = require("../services/rounds").resolveWager(id, { amount: p.pendingBet.amount, allWin: p.pendingBet.allWin }, "coop");
+            pool.adjustBalanceSync(wallet.id, -amount, "bet", "blackjack", t.code);
+            p.wager = amount; p.allWin = amount === wallet.balance;
+            t.pot += amount;
+            if (!Number.isSafeInteger(t.pot)) throw new Error("Saldo fora do limite permitido.");
+        }
+        p.pendingBet = null;
         p.hand = online ? [t.deck.pop(), t.deck.pop()] : [];
         p.stood = !online;
         p.busted = false;
         p.shield = false;
         p.lastDrawn = null;
         p.lastAttack = null;
-        if (restoreEnergy && online) p.nrg = Math.min(p.nrg + 2, 10);
+        p.hits = 0;
+        if (online && (restoreEnergy || t.round > 1)) p.nrg = Math.min(p.nrg + 2, 10);
         if (online) t.order.push(id);
     }
     t.turnIdx = 0;
     t.phase = "playing";
+    if (t.pot >= 10000000) for (const id of t.order) require("../services/achievements").unlockAchievement(id, "rich_friends");
 }
 
 function broadcastTable(t, io) {
+    for (const [id,p] of t.players) p.specials = bj.inventory(id).flatMap((c) => Array(c.qty).fill(c.key));
     store.save("blackjack", t);
     io.to("bj:" + t.code).emit("bj:state", tableState(t));
     for (const p of t.players.values()) for (const socketId of p.socketIds) {
         io.to(socketId).emit("bj:specials", { cards: p.specials });
     }
 }
-function setupBlackjackMultiplayer(io) {
+function setupBlackjackMultiplayer(realIO) {
+    let pendingEvents = null;
+    const io = {
+        on: (...args) => realIO.on(...args),
+        to: (channel) => ({ emit(event, data) {
+            if (pendingEvents) pendingEvents.push({ channel, event, data: structuredClone(data) });
+            else realIO.to(channel).emit(event, data);
+        } }),
+    };
+    function waitForReconnect(t, userId) {
+        const player = t.players.get(userId), timerKey = t.code + ":" + userId;
+        player.reconnectUntil = Date.now() + 25000;
+        clearTimeout(reconnectTimers.get(timerKey));
+        function expire() {
+            reconnectTimers.delete(timerKey);
+            const active = tables.get(t.code), offline = active?.players.get(userId);
+            if (!offline || offline.socketIds.size) return;
+            const before = structuredClone(active);
+            pendingEvents = [];
+            try {
+                pool.transactionSync(() => {
+                    offline.reconnectUntil = 0; offline.stood = true;
+                    if (active.phase === "playing" && active.order[active.turnIdx] === userId) nextTurn(active, io, t.code);
+                    broadcastTable(active, io);
+                });
+                const events = pendingEvents; pendingEvents = null;
+                for (const message of events) realIO.to(message.channel).emit(message.event, message.data);
+            } catch (error) {
+                Object.assign(active, before);
+                console.error("Blackjack reconnection:", error.message);
+                reconnectTimers.set(timerKey, setTimeout(expire, 5000).unref());
+            } finally { pendingEvents = null; }
+        }
+        reconnectTimers.set(timerKey, setTimeout(expire, 25000).unref());
+    }
+    // Restored tables have no live sockets; recover escrow after the reconnect window.
+    for (const t of tables.values()) if (t.phase === "playing") {
+        for (const [id,p] of t.players) if (!p.socketIds.size) waitForReconnect(t,id);
+        store.save("blackjack",t);
+    }
 
     io.on("connection", (socket) => {
         socket.data.tableCode = null;
         function on(event, fn) {
             socket.on(event, (data, cb) => {
                 if (typeof data === "function") { cb = data; data = {}; }
-                try { fn(data || {}, typeof cb === "function" ? cb : () => {}); }
-                catch (err) { if (typeof cb === "function") cb({ ok: false, error: err.message }); }
+                const t = tables.get(socket.data.tableCode), before = t && structuredClone(t);
+                const priorCode = socket.data.tableCode;
+                const target = event === "bj:join" ? tables.get(String(data?.code || "").trim().toUpperCase()) : null;
+                const targetBefore = target && target !== t && structuredClone(target);
+                const priorCodes = event === "bj:create" ? new Set(tables.keys()) : null;
+                let response;
+                pendingEvents = [];
+                try {
+                    pool.transactionSync(() => {
+                        fn(data || {}, (result) => { response = result; });
+                        const active = tables.get(socket.data.tableCode);
+                        if (active) store.save("blackjack", active);
+                    });
+                    const events = pendingEvents; pendingEvents = null;
+                    for (const message of events) realIO.to(message.channel).emit(message.event, message.data);
+                    if (typeof cb === "function") cb(response || { ok: true });
+                } catch (err) {
+                    if (t && before) Object.assign(t, before);
+                    if (targetBefore) Object.assign(target, targetBefore);
+                    if (priorCodes) for (const key of tables.keys()) if (!priorCodes.has(key)) tables.delete(key);
+                    socket.data.tableCode = priorCode;
+                    if (typeof cb === "function") cb({ ok: false, error: err.message });
+                } finally { pendingEvents = null; }
             });
         }
 
         // ---------- CRIAR/ENTRAR ----------
         on("bj:create", (data, cb) => {
+            if (tables.get(socket.data.tableCode)?.phase === "playing") throw new Error("Finalize a rodada antes de trocar de mesa.");
             let code;
             do { code = secureCode(); } while (tables.has(code));
             const t = newTable(code, socket.userId);
@@ -257,23 +324,24 @@ function setupBlackjackMultiplayer(io) {
         });
 
         on("bj:join", (data, cb) => {
-            const t = tables.get(String(data && data.code || "").toUpperCase());
+            const t = tables.get(String(data && data.code || "").toUpperCase().trim());
             if (!t) return cb && cb({ ok: false, error: "Mesa não encontrada." });
             joinTable(socket, t, io, cb);
         });
 
         function joinTable(socket, t, io, cb) {
             const prior = tables.get(socket.data.tableCode);
+            if (prior && prior !== t && prior.phase === "playing") throw new Error("Finalize a rodada antes de trocar de mesa.");
+            if (!t.players.has(socket.userId)) {
+                if (t.players.size >= 8) return cb && cb({ ok: false, error: "Mesa cheia." });
+                if (t.phase !== "lobby" && t.phase !== "finished") return cb && cb({ ok: false, error: "Rodada em andamento." });
+            }
             if (prior && prior !== t) {
                 prior.players.get(socket.userId)?.socketIds.delete(socket.id);
                 socket.leave("bj:" + prior.code);
                 broadcastTable(prior, io);
             }
             if (!t.players.has(socket.userId)) {
-                if (t.players.size >= 8) return cb && cb({ ok: false, error: "Mesa cheia." });
-                if (t.phase !== "lobby" && t.phase !== "finished") {
-                    return cb && cb({ ok: false, error: "Rodada em andamento." });
-                }
                 t.players.set(socket.userId, {
                     username: socket.username,
                     hand: [],
@@ -287,9 +355,17 @@ function setupBlackjackMultiplayer(io) {
                 });
                 t.order.push(socket.userId);
             }
-            t.players.get(socket.userId).socketIds.add(socket.id);
+            const joining = t.players.get(socket.userId);
+            if (!joining.inventoryMigrated) {
+                for (const key of joining.specials || []) if (Object.hasOwn(SPECIAL_CARDS, key)) bj.addCard(socket.userId, key);
+                joining.inventoryMigrated = true;
+            }
+            joining.socketIds.add(socket.id);
+            joining.reconnectUntil = 0;
+            const timerKey = t.code + ":" + socket.userId;
+            clearTimeout(reconnectTimers.get(timerKey)); reconnectTimers.delete(timerKey);
             if (!t.players.get(t.hostId)?.socketIds.size) t.hostId = socket.userId;
-            if (t.phase === "playing" && !t.players.get(t.order[t.turnIdx])?.socketIds.size) nextTurn(t, io, t.code);
+            if (t.phase === "playing" && !present(t.players.get(t.order[t.turnIdx]))) nextTurn(t, io, t.code);
             socket.data.tableCode = t.code;
             socket.join(`bj:${t.code}`);
             broadcastTable(t, io);
@@ -297,6 +373,17 @@ function setupBlackjackMultiplayer(io) {
         }
 
         // ---------- INICIAR RODADA ----------
+        on("bj:bet", (data, cb) => {
+            const t = tables.get(socket.data.tableCode), p = t?.players.get(socket.userId);
+            if (!p || t.phase === "playing") throw new Error("Apostas fechadas.");
+            if (data.amount === 0 && data.allWin !== true) p.pendingBet = null;
+            else {
+                const amount = require("../services/rounds").resolveWager(socket.userId, data, "coop");
+                if (amount > pool.getWalletSync(socket.userId, "coop").balance) throw new Error("Saldo COOP insuficiente.");
+                p.pendingBet = { amount, allWin: data.allWin === true };
+            }
+            broadcastTable(t, io); cb({ ok: true });
+        });
         on("bj:start", (_, cb) => {
             const t = tables.get(socket.data.tableCode);
             if (!t || t.hostId !== socket.userId) return cb && cb({ ok: false, error: "Só o host inicia." });
@@ -317,12 +404,13 @@ function setupBlackjackMultiplayer(io) {
             const p = t.players.get(socket.userId);
             const card = draw(t);
             p.hand.push(card);
+            p.hits = (p.hits || 0) + 1;
             p.lastDrawn = card;
 
             // chance de carta especial
             maybeSpecial(t, p, io, t.code);
 
-            const total = handValue(p.hand);
+            const total = handValue(p.hand, t.limit);
             if (total > t.limit) {
                 p.busted = true;
                 io.to(`bj:${t.code}`).emit("bj:chat", { system: true, message: `💥 ${p.username} estourou com ${total} (limite ${t.limit}).`, at: Date.now() });
@@ -339,7 +427,7 @@ function setupBlackjackMultiplayer(io) {
 
             const p = t.players.get(socket.userId);
             p.stood = true;
-            io.to(`bj:${t.code}`).emit("bj:chat", { system: true, message: `✋ ${p.username} parou em ${handValue(p.hand)}.`, at: Date.now() });
+            io.to(`bj:${t.code}`).emit("bj:chat", { system: true, message: `✋ ${p.username} parou em ${handValue(p.hand, t.limit)}.`, at: Date.now() });
             nextTurn(t, io, t.code);
             cb && cb({ ok: true });
         });
@@ -366,8 +454,11 @@ function setupBlackjackMultiplayer(io) {
             const target = targeted ? t.players.get(finalTargetId) : me;
             if (!target || (targeted && (finalTargetId === socket.userId || !t.order.includes(finalTargetId)))) return cb && cb({ ok: false, error: "Alvo inválido." });
             if (key === "mirror" && !me.lastAttack) return cb && cb({ ok: false, error: "Nenhuma carta para refletir." });
-            if (key === "pick_card" && !t.deck.some((c) => c.rank === String(data.rank || "A") && c.suit === String(data.suit || "♠"))) return cb && cb({ ok: false, error: "Carta não disponível no baralho." });
             const effect = key === "mirror" ? me.lastAttack.key : key;
+            if (effect === "remove_last" && target.hand.length <= 2) return cb && cb({ ok: false, error: "Nenhuma carta extra para remover." });
+            if (key === "shield" && me.shield) return cb && cb({ ok: false, error: "Escudo ja ativo." });
+            if (key === "pick_card" && !t.deck.some((c) => c.rank === String(data.rank || "A") && c.suit === String(data.suit || "♠"))) return cb && cb({ ok: false, error: "Carta não disponível no baralho." });
+            bj.consume(socket.userId, key);
             if (targeted && key !== "mirror") target.lastAttack = { key, from: socket.userId };
             if (key === "mirror") me.lastAttack = null;
 
@@ -389,9 +480,9 @@ function setupBlackjackMultiplayer(io) {
                     const card = draw(t);
                     target.hand.push(card);
                     target.lastDrawn = card;
-                    if (handValue(target.hand) > t.limit) {
+                    if (handValue(target.hand, t.limit) > t.limit) {
                         target.busted = true;
-                        io.to(`bj:${t.code}`).emit("bj:chat", { system: true, message: `💥 ${target.username} estourou com ${handValue(target.hand)}!`, at: Date.now() });
+                        io.to(`bj:${t.code}`).emit("bj:chat", { system: true, message: `💥 ${target.username} estourou com ${handValue(target.hand, t.limit)}!`, at: Date.now() });
                     }
                     break;
                 }
@@ -420,18 +511,20 @@ function setupBlackjackMultiplayer(io) {
                     if (cardIdx !== -1) {
                         const card = t.deck.splice(cardIdx, 1)[0];
                         me.hand.push(card);
+                        me.hits = (me.hits || 0) + 1;
                         me.lastDrawn = card;
-                        if (handValue(me.hand) > t.limit) me.busted = true;
+                        if (handValue(me.hand, t.limit) > t.limit) me.busted = true;
                     }
                     break;
                 }
                 case "draw_three": {
+                    me.hits = (me.hits || 0) + 3;
                     for (let i = 0; i < 3; i++) {
                         const card = draw(t);
                         me.hand.push(card);
                         me.lastDrawn = card;
                     }
-                    if (handValue(me.hand) > t.limit) me.busted = true;
+                    if (handValue(me.hand, t.limit) > t.limit) me.busted = true;
                     break;
                 }
                 case "mirror": {
@@ -448,7 +541,7 @@ function setupBlackjackMultiplayer(io) {
 
             // busts por limite alterado
             for (const p of t.players.values()) {
-                p.busted = handValue(p.hand) > t.limit;
+                p.busted = handValue(p.hand, t.limit) > t.limit;
             }
 
             const currentPlayer = t.players.get(t.order[t.turnIdx]);
@@ -474,9 +567,8 @@ function setupBlackjackMultiplayer(io) {
                 const player = t.players.get(socket.userId);
                 player.socketIds.delete(socket.id);
                 if (!player.socketIds.size) {
-                    player.stood = true;
                     if (t.hostId === socket.userId) t.hostId = [...t.players].find(([, p]) => p.socketIds.size)?.[0] || t.hostId;
-                    if (t.phase === "playing" && t.order[t.turnIdx] === socket.userId) nextTurn(t, io, code);
+                    waitForReconnect(t,socket.userId);
                 }
                 broadcastTable(t, io);
             }

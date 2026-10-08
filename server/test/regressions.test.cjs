@@ -393,6 +393,9 @@ test("multiplayer Blackjack delivers private cards, enforces turns and charges s
     const table = tables.get(code), actor = table.players.get(a), opponent = table.players.get(b);
     actor.specials = ["shield", "pick_card"];
     opponent.specials = ["force_hit"];
+    const bjCards = require("../src/services/blackjack");
+    for (const key of actor.specials) bjCards.addCard(a, key);
+    for (const key of opponent.specials) bjCards.addCard(b, key);
     assert.equal(p2.call("bj:special", { cardKey: "force_hit", targetId: a }).ok, false);
     assert.equal(opponent.specials.length, 1);
     assert.equal(p1.call("bj:special", { cardKey: "shield" }).ok, true);

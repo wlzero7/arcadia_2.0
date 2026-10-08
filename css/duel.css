@@ -514,11 +514,8 @@ button.live-mine-cell:disabled { cursor: default; }
     align-items: center;
     justify-content: center;
     flex-wrap: wrap;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 1.5rem;
-    box-shadow: var(--shadow-card);
+    min-width: 0;
+    width: 100%;
     max-width: 560px;
     margin: 0 auto;
 }
@@ -527,15 +524,19 @@ button.live-mine-cell:disabled { cursor: default; }
     display: flex;
     gap: .5rem;
     align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 100%;
 }
 
 .duel-code-input {
     width: 140px;
+    max-width: 100%;
     padding: .7rem .9rem;
     font-size: 1.2rem;
     font-weight: 800;
     text-align: center;
-    letter-spacing: .3em;
+    letter-spacing: 0;
     text-transform: uppercase;
     border-radius: var(--radius-sm);
     border: 2px dashed var(--border);

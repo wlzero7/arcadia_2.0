@@ -120,6 +120,7 @@ router.post("/login", async (req, res) => {
 
 router.get("/me", authenticate, async (req, res) => {
     try {
+        require("../services/achievements").checkProfileAchievements(req.user.id);
         const user = await pool.get(
             `SELECT id, username, email, created_at, display_name, avatar, xp, level FROM users WHERE id = ?`,
             [req.user.id]

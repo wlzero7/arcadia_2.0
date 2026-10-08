@@ -535,3 +535,5 @@ main > *, .game-card, .profile-card, .room-card {
         transition-duration: .01ms !important;
     }
 }
+:root .all-win-button { border-radius: 6px; white-space: nowrap; min-height: 40px; flex-shrink: 0; }
+:root .all-win-button[aria-pressed="true"] { background: #235a3f; color: #fff; border-color: #66cd97; }

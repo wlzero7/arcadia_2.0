@@ -1,18 +1,9 @@
 (() => {
     const $ = (id) => document.getElementById(id);
     let busy = false, active = false;
+    const trumps = ArcadiaBlackjack.controls($("blackjackTrumps"), (body) => action("special", body));
     function cards(id, hand) {
-        $(id).replaceChildren();
-        for (const card of hand) {
-            const div = document.createElement("div");
-            div.className = "card" + (card.hidden ? " back" : ["♥", "♦"].includes(card.suit) ? " red" : "");
-            if (!card.hidden) {
-                const rank = document.createElement("span"), suit = document.createElement("span");
-                rank.textContent = card.rank; suit.textContent = card.suit; suit.className = "suit";
-                div.append(rank, suit);
-            }
-            $(id).appendChild(div);
-        }
+        ArcadiaBlackjack.cards($(id), hand);
     }
     function render(data) {
         active = !data.finished;
@@ -25,6 +16,8 @@
         $("actionRow").classList.toggle("hidden", !active);
         $("newRoundBtn").classList.toggle("hidden", active);
         $("doubleBtn").disabled = !data.canDouble;
+        trumps.render({ ...data, canUse: active && !busy });
+        if (data.finished) trumps.refresh();
         if (Number.isSafeInteger(data.balance)) ArcadiaWallet.setCached(data.balance);
     }
     async function action(name, body) {
@@ -48,6 +41,8 @@
             busy = false;
             for (const id of ["dealBtn", "hitBtn", "standBtn"]) $(id).disabled = false;
             $("doubleBtn").disabled = !active || !canDouble;
+            const state = await ArcadiaAPI.request("/api/games/blackjack/state").catch(() => null);
+            if (state?.active) trumps.render({ ...state, canUse: active });
         }
     }
     $("dealBtn").addEventListener("click", () => action("start", { wager: Number($("betAmount").value) }));
@@ -64,6 +59,7 @@
         await ArcadiaAPI.ready;
         if (ArcadiaAPI.isLoggedIn()) {
             await ArcadiaWallet.refresh();
+            await trumps.refresh();
             const state = await ArcadiaAPI.request("/api/games/blackjack/state").catch(() => null);
             if (state?.active) render(state);
         }

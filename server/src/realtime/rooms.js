@@ -26,7 +26,6 @@ function persistRoomCreate(room) {
         room.id = result.lastInsertRowid;
         pool.db.run("INSERT INTO room_pot (room_id, balance) VALUES (?, ?)", [room.id, room.pot]);
         for (const id of room.members.keys()) persistRoomMember(room, id);
-        unlockAchievement(room.hostId, "room_host");
     });
 }
 function persistRoom(room) {
@@ -157,12 +156,13 @@ function setupMultiplayer(io) {
             const room = current();
             mutate(room, () => {
                 if (room.rBets.length) throw new Error("Finalize o giro antes de depositar.");
-                const amount = wager(data.amount, 1);
                 const wallet = pool.getWalletSync(socket.userId, "coop");
+                const amount = wager(data.allWin === true ? wallet.balance : data.amount, 1, data.allWin === true ? Number.MAX_SAFE_INTEGER : 1000000);
                 pool.adjustBalanceSync(wallet.id, -amount, "room_stake", "room", room.code);
                 room.pot += amount;
                 if (!Number.isSafeInteger(room.pot)) throw new Error("Saldo fora do limite permitido.");
                 room.stakes.set(socket.userId, (room.stakes.get(socket.userId) || 0) + amount);
+                if (room.pot >= 10000000) for (const [id, stake] of room.stakes) if (stake > 0) unlockAchievement(id, "rich_friends");
             });
             broadcast(room);
             return { room: roomSummary(room) };
@@ -192,7 +192,9 @@ function setupMultiplayer(io) {
             const room = current();
             const entry = mutate(room, () => {
                 if (room.game === "roulette") throw new Error("Use as apostas da roleta.");
-                const amount = wager(data.wager, room.minBet, room.maxBet);
+                const useAllWin = data.allWin === true || (room.game === "slots" && data.choice?.trump === "allwin");
+                const amount = wager(useAllWin ? room.pot : data.wager, useAllWin ? 1 : room.minBet, useAllWin ? Number.MAX_SAFE_INTEGER : room.maxBet);
+                const allWin = amount === room.pot;
                 if (amount > room.pot) throw new Error("Pote insuficiente.");
                 let result;
                 if (room.game === "slots") {
@@ -211,11 +213,13 @@ function setupMultiplayer(io) {
                 result.outcome = result.payout > result.wager ? "win" : result.payout === result.wager ? "push" : "loss";
                 room.pot += result.payout - result.wager;
                 room.stakes = allocateShares(room.stakes, room.pot);
-                recordBet(socket.userId, room.game, result.wager, result.payout, result.outcome, { ...result, roomCode: room.code });
+                recordBet(socket.userId, room.game, result.wager, result.payout, result.outcome, { ...result, ...result.detail, allWin, baseWager: amount, roomCode: room.code });
+                if (room.pot >= 10000000) for (const [id, stake] of room.stakes) if (stake > 0) unlockAchievement(id, "rich_friends");
                 trackRoomActivity(socket.userId, room.code);
                 if (room.game === "slots") {
                     result.card = rollCardDrop(false);
                     if (result.card) pool.db.run("INSERT INTO slots_cards (user_id, card_key, rarity) VALUES (?, ?, ?)", [socket.userId, result.card.key, result.card.rarity]);
+                    require("../services/achievements").checkProfileAchievements(socket.userId);
                 }
                 // Preserve the flat fields consumed by the multiplayer client.
                 Object.assign(result, result.detail);
@@ -229,7 +233,8 @@ function setupMultiplayer(io) {
             const room = current();
             mutate(room, () => {
                 if (room.game !== "roulette") throw new Error("Sala não é de roleta.");
-                const bet = roulette.validateBet(data, room.minBet, room.maxBet);
+                const bet = roulette.validateBet({ ...data, amount: data.allWin === true ? room.pot : data.amount }, data.allWin === true ? 1 : room.minBet, data.allWin === true ? Number.MAX_SAFE_INTEGER : room.maxBet);
+                bet.allWin = bet.amount === room.pot && room.rBets.length === 0;
                 if (room.rBets.length >= 100) throw new Error("Limite de apostas atingido.");
                 if (bet.amount > room.pot) throw new Error("Pote insuficiente.");
                 room.pot -= bet.amount;
@@ -250,7 +255,7 @@ function setupMultiplayer(io) {
                     const bets = result.results.filter((b) => b.userId === userId);
                     const amount = bets.reduce((s, b) => s + b.amount, 0);
                     const payout = bets.reduce((s, b) => s + b.payout, 0);
-                    recordBet(userId, "roulette", amount, payout, payout > amount ? "win" : payout === amount ? "push" : "loss", { results: bets, roomCode: room.code });
+                    recordBet(userId, "roulette", amount, payout, payout > amount ? "win" : payout === amount ? "push" : "loss", { results: bets, allWin: bets.length === 1 && bets[0].allWin, roomCode: room.code });
                     trackRoomActivity(userId, room.code);
                 }
                 room.rBets = [];

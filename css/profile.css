@@ -4,6 +4,17 @@
    ================================ */
 
 .profile-main { padding: 2rem 0 4rem; }
+.achieve-copy { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.achieve-copy strong, .achieve-copy small { display: block; }
+.achieve-copy small { margin-top: .3rem; font-size: .8rem; line-height: 1.5; }
+.achieve-xp { flex-shrink: 0; }
+.bug-reports { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
+.bug-reports form { display: grid; gap: .75rem; max-width: 640px; }
+.bug-reports label { display: grid; gap: .4rem; }
+.bug-reports input, .bug-reports textarea { width: 100%; box-sizing: border-box; padding: .7rem; color: inherit; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+.bug-reports article { padding: 1rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.bug-reports article p { white-space: pre-wrap; }
+.bug-reports article button { margin: .5rem .5rem 0 0; }
 
 .profile-main h1 {
     font-size: 2rem;
