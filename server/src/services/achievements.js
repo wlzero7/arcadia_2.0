@@ -101,23 +101,8 @@ function unlockAchievement(userId, key, checkProfile = true) {
 function checkProfileAchievements(userId) {
     if (checking.has(userId)) return [];
     checking.add(userId);
-    const unlocked = [];
     try {
-        return pool.transactionSync(() => {
-            const state = profileState(pool.batchSync(profileQueries(userId)));
-            const award = (key, condition) => {
-                if (!condition || state.owned.has(key)) return;
-                const item = unlockAchievement(userId, key, false);
-                state.owned.add(key);
-                if (item) {
-                    unlocked.push(item);
-                    if (item.levelInfo) state.level = item.levelInfo.level;
-                    for (const wallet of state.wallets) wallet.balance += ACHIEVEMENT_AC;
-                }
-            };
-            visitProfileRewards(state, award);
-            return unlocked;
-        });
+        return applyGameProgressions([{ userId, round: { game: "", outcome: "push", wager: 0, detail: {} } }])[0].unlocked;
     } finally { checking.delete(userId); }
 }
 function streak(rows, outcome, count) {

@@ -64,10 +64,11 @@ function settleRound(userId, game, payout, outcome, detail) {
 }
 function settleInstant(userId, game, amount, payout, outcome, detail, walletKind = "solo") {
     return pool.transactionSync(() => {
-        const wallet = pool.getWalletSync(userId, walletKind);
-        pool.adjustBalanceSync(wallet.id, -amount, "bet", "game", game);
-        pool.adjustBalanceSync(wallet.id, payout, "payout", "game", game);
-        const progression = recordBet(userId, game, amount, payout, outcome, { ...detail, allWin: amount === wallet.balance });
+        const [wallet] = pool.adjustWalletsSync([{ userId, walletKind, movements: [
+            { delta: -amount, kind: "bet", refType: "game", refId: game },
+            { delta: payout, kind: "payout", refType: "game", refId: game },
+        ] }]);
+        const progression = recordBet(userId, game, amount, payout, outcome, { ...detail, allWin: amount === wallet.previousBalance });
         return { balance: pool.db.get("SELECT balance FROM wallets WHERE id = ?", [wallet.id]).balance, ...progression };
     });
 }

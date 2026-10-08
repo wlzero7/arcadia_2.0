@@ -408,16 +408,20 @@ function adjustWalletsSync(entries) {
         const statements = [];
         const wallets = entries.map((entry, index) => {
             const wallet = rows[index * 2 + 1];
-            const delta = typeof entry.delta === "function" ? entry.delta(wallet) : entry.delta;
-            if (!Number.isSafeInteger(delta)) throw new Error("Valor invalido.");
-            const balance = wallet.balance + delta;
-            if (!Number.isSafeInteger(balance)) throw new Error("Saldo fora do limite permitido.");
-            if (balance < 0) throw new Error("Saldo insuficiente.");
-            statements.push(
-                { sql: "UPDATE wallets SET balance=?,updated_at=datetime('now') WHERE id=?", params: [balance, wallet.id] },
-                { sql: "INSERT INTO transactions (wallet_id,kind,amount,balance_after,ref_type,ref_id) VALUES (?,?,?,?,?,?)", params: [wallet.id, entry.kind, delta, balance, entry.refType || null, entry.refId || null] },
-            );
-            return { id: wallet.id, previousBalance: wallet.balance, balance };
+            const previousBalance = wallet.balance;
+            for (const movement of entry.movements || [entry]) {
+                const delta = typeof movement.delta === "function" ? movement.delta(wallet) : movement.delta;
+                if (!Number.isSafeInteger(delta)) throw new Error("Valor invalido.");
+                const balance = wallet.balance + delta;
+                if (!Number.isSafeInteger(balance)) throw new Error("Saldo fora do limite permitido.");
+                if (balance < 0) throw new Error("Saldo insuficiente.");
+                statements.push(
+                    { sql: "UPDATE wallets SET balance=?,updated_at=datetime('now') WHERE id=?", params: [balance, wallet.id] },
+                    { sql: "INSERT INTO transactions (wallet_id,kind,amount,balance_after,ref_type,ref_id) VALUES (?,?,?,?,?,?)", params: [wallet.id, movement.kind, delta, balance, movement.refType || null, movement.refId || null] },
+                );
+                wallet.balance = balance;
+            }
+            return { id: wallet.id, previousBalance, balance: wallet.balance };
         });
         batchSync(statements);
         return wallets;

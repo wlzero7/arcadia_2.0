@@ -133,6 +133,7 @@
 
 .field-row input {
     flex: 1;
+    min-width: 0;
     padding: .55rem .8rem;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
@@ -140,6 +141,8 @@
     color: var(--text);
     transition: border-color .2s ease, box-shadow .2s ease;
 }
+
+.field-row .btn { flex: 0 0 auto; white-space: nowrap; }
 
 .field-row input:focus {
     border-color: var(--primary);

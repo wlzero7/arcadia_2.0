@@ -10,8 +10,10 @@ roda server/scripts/preview-probe.cjs: verifica persistencia e uma sala de
 falha impede a ativacao. O site principal permanece inalterado.
 
 Teste real no computador passou para carteiras, recompensas, missao,
-foto, rollback e reinicio. A rodada com 16 jogadores levou 4.067 ms depois
-das recompensas; desempenho entre Render e Turso ainda precisa de ajustes.
+foto, rollback e reinicio. Homologacao 60fc4b6 no Render Free/Oregon passou:
+Roleta com 16 jogadores em 1.903 ms; Blackjack com 8 jogadores iniciou em
+1.076 ms e liquidou em ate 2.399 ms. O ultimo ajuste que reduz requests de
+partidas instantaneas e conquistas de perfil precisa repetir essa validacao.
 O proprietario pediu expressamente que o agente configure tambem o Turso
 no servico principal ao concluir toda a atualizacao, nao neste checkpoint.
 

@@ -80,4 +80,38 @@ test("collective and individual progression produce identical milestones, XP and
     for (const [single, group] of pairs) assert.deepEqual(snapshot(group), snapshot(single));
     assert.throws(() => recordBets([entries[0], entries[0]]), /duplicado/);
 });
+test("batched wallet movements preserve intermediate balances and reject unfunded bets before payout", () => {
+    const id = user("movements");
+    const moves = (amount) => [{ userId: id, walletKind: "solo", movements: [
+        { delta: -amount, kind: "bet", refType: "game", refId: "dice" },
+        { delta: 200, kind: "payout", refType: "game", refId: "dice" },
+    ] }];
+    const before = snapshot(id);
+    assert.throws(() => pool.adjustWalletsSync(moves(1000001)), /insuficiente/);
+    assert.deepEqual(snapshot(id), before);
+    const [wallet] = pool.adjustWalletsSync(moves(100));
+    assert.equal(wallet.previousBalance, 1000000); assert.equal(wallet.balance, 1000100);
+    assert.deepEqual(snapshot(id).rewards.map((row) => [row.amount, row.balance_after]), [[-100, 999900], [200, 1000100]]);
+    assert.throws(() => pool.adjustWalletsSync([moves(1)[0], moves(1)[0]]), /duplicada/);
+});
+test("multiple profile milestones converge in one bounded batch and never reaward", () => {
+    const id = user("profile_batch");
+    pool.db.run("UPDATE users SET level=100,xp=10 WHERE id=?", [id]);
+    pool.db.run("UPDATE wallets SET balance=33500000 WHERE user_id=?", [id]);
+    const { checkProfileAchievements } = require("../src/services/achievements");
+    const original = Object.fromEntries(["exec", "get", "all", "run"].map((method) => [method, pool.db[method].bind(pool.db)]));
+    let requests = 0;
+    for (const method of Object.keys(original)) pool.db[method] = (...args) => { requests++; return original[method](...args); };
+    pool.db.batch = (statements) => { requests++; return statements.map(({ method = "run", sql, params = [] }) => original[method](sql, params)); };
+    try {
+        assert.equal(checkProfileAchievements(id).length, 6);
+        assert.ok(requests <= 8, "Profile used " + requests + " requests");
+        assert.equal(checkProfileAchievements(id).length, 0);
+    } finally {
+        for (const method of Object.keys(original)) pool.db[method] = original[method];
+        delete pool.db.batch;
+    }
+    assert.equal(snapshot(id).rewards.length, 18);
+    for (const wallet of snapshot(id).wallets) assert.equal(wallet.balance, 34100000);
+});
 test.after(() => { pool.db.close(); fs.rmSync(directory, { recursive: true, force: true }); });

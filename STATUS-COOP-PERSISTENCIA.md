@@ -3,9 +3,28 @@
 Data: 8 de outubro de 2026. Atualizacao PARCIAL, nao publicada em main.
 Branch: feature/coop-avatars-persistence.
 Base integrada: 7441d82 (origin/main em 8/10).
-Checkpoint commitado e enviado somente na branch de testes: 7c0c45c.
+Checkpoint mais recente enviado somente na branch de testes: 60fc4b6.
 
 ## Resultado da previa Render
+
+- Homologacao 60fc4b6 APROVADA: dep-db3ne7ugekts73fg8qug, Live.
+  Render Oregon -> Turso Sao Paulo: Roleta 16 jogadores 1.903 ms;
+  Blackjack 8 jogadores inicio 1.076 ms, maior acao 2.399 ms.
+  Conta 568 ms; primeira aposta 2.681 ms; segunda 2.133 ms;
+  missao 1.427 ms; foto 550 ms. Rollback/reinicio/foto confirmados.
+  Contas/salas temporarias removidas. Principal permanece inalterado.
+  A chave efemera do probe resolveu a falha de carregamento dos modulos.
+- Ajuste final: partidas instantaneas usam 11 requests (antes 16) e
+  conquistas encadeadas de perfil sao calculadas em lote, sem viagens por
+  conquista. Revalidar esse ultimo ajuste na previa antes da publicacao.
+- Suite final local: 142/142; auditoria apos restaurar dependencias: zero.
+  npm ci local encontrou DLL em uso por servidor ja aberto; npm install
+  --ignore-scripts restaurou dependencias sem encerrar servidores. Lock
+  permaneceu inalterado. npm ci Linux do Render passou sem alertas.
+- QA visual final passou: jogos/avatares/missoes desktop, 390 e 320 px;
+  XP do servidor, recompensa AC por carteira, resgate/reload nas tres
+  carteiras, estatisticas, botao Abrir missoes sem sobreposicao, botao
+  Adicionar sem corte. Sons reutilizam Sfx existente no componente visual.
 
 - Segundo deploy de diagnostico: 9d02ce5, dep-db3n53k9v7es73do0db0.
   Build confirmou ZERO vulnerabilidades. Falha continuou sem codigo de
@@ -114,17 +133,10 @@ Checkpoint commitado e enviado somente na branch de testes: 7c0c45c.
 - diff --check com reconhecimento de CRLF passou. Auditoria anterior
   das dependencias de producao nao apontou vulnerabilidades.
 
-## Pendencias obrigatorias
+## Pendencias para publicacao
 
-- Medir no Render Oregon contra Turso Sao Paulo, usando previa Free.
-  server/scripts/preview-probe.cjs executa os dois testes reais e so inicia
-  uma rota de saude se ambos passarem. Nao expoe o aplicativo inacabado.
-- Reduzir requisicoes na liquidacao coletiva de Roleta/Blackjack MP.
-  O driver sincrono e as transacoes interativas de 5 s exigem margem real.
-  Nao publicar sem passar desempenho, atomicidade e reconexao.
-- Revalidar visualmente recompensas/XP em perfil e missoes desktop/celular.
-- Conferir sons e acabamento compartilhado com Solo/Duelo, sem declarar
-  que todos os jogos foram redesenhados.
+- Repetir homologacao na previa com o ultimo ajuste de requests/XP.
+  Medicoes anteriores, atomicidade, reconexao e QA ja passaram.
 - Configurar Turso no servico PRINCIPAL somente na entrega final.
 - Servico principal Render: srv-dauq2jo473hc73c6htgg, Free, Oregon.
   Estava revertido a cca014f e Auto-Deploy desativado. Push nao confirma
