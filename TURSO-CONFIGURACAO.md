@@ -1,13 +1,19 @@
 # Banco persistente: configuracao privada
 
 O banco Arcadia foi criado na conta Turso do proprietario. A integracao
-foi homologada no Render Free. Ativacao do principal faz parte da entrega.
+foi homologada e ativada no Render Free em 8 de outubro de 2026.
+
+Principal: srv-dauq2jo473hc73c6htgg, release 159ff87, deploy
+dep-db3o1grtqb8s73ep5eng Live. Conta, tres carteiras, sessao e imagem
+persistiram apos restart real as 08:40 GMT-3. Auto-Deploy On Commit para
+main foi reativado. A previa gratuita foi suspensa apos a homologacao.
 
 Em 8/10/2026 o proprietario autorizou configurar uma previa gratuita de
 validacao no Render com as credenciais privadas existentes. Esse servico
 roda server/scripts/preview-probe.cjs: verifica persistencia e uma sala de
 16 jogadores, sem expor cadastro, contas, fotos ou jogos ao publico. Uma
-falha impede a ativacao. O site principal permanece inalterado.
+falha impede a ativacao. Durante a homologacao o principal permaneceu
+inalterado; so recebeu a atualizacao completa depois da aprovacao.
 
 Teste real no computador passou para carteiras, recompensas, missao,
 foto, rollback e reinicio. Homologacao 60fc4b6 no Render Free/Oregon passou:
@@ -16,7 +22,8 @@ Roleta com 16 jogadores em 1.903 ms; Blackjack com 8 jogadores iniciou em
 testes com o cadastro real da API: 1.761 ms. Roleta 16 jogadores 1.869 ms;
 Blackjack 8 jogadores inicio 1.079 ms e liquidacao de ate 2.353 ms.
 O proprietario pediu expressamente que o agente configure tambem o Turso
-no servico principal ao concluir toda a atualizacao, nao neste checkpoint.
+no servico principal ao concluir toda a atualizacao. Configuracao feita
+privadamente no Render, preservando JWT_SECRET e NODE_ENV existentes.
 
 ## Preparar o teste
 
@@ -42,6 +49,10 @@ No ambiente privado do servico Arcadia no Render, configurar:
 - TURSO_DATABASE_URL: URL do banco libSQL fornecida pelo Turso.
 - TURSO_AUTH_TOKEN: token privado de leitura e escrita.
 - REQUIRE_PERSISTENT_DB: 1.
+- NODE_VERSION: 20 (mesma versao homologada).
+
+Essas quatro variaveis ja foram configuradas no principal. Nao e preciso
+reenvia-las no chat. O banco comecou vazio por autorizacao do proprietario.
 
 Com a protecao habilitada, o servidor nao usara um banco local vazio
 quando a configuracao remota estiver faltando ou indisponivel.

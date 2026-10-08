@@ -1,10 +1,10 @@
 # Checkpoint: Coop, fotos, economia e Turso
 
-Data: 8 de outubro de 2026. Implementacao e homologacao concluidas.
-Publicacao na main e ativacao do principal em andamento.
-Branch: feature/coop-avatars-persistence.
+Data: 8 de outubro de 2026. Atualizacao concluida e publicada.
+Branch de entrega: main. Desenvolvimento: feature/coop-avatars-persistence.
 Base integrada: 7441d82 (origin/main em 8/10).
 Codigo homologado: b25a413 (branch de testes).
+Release publicado: 159ff877cd9143f04acf8e070d58e5908f93e895.
 
 ## Estado atual
 
@@ -16,9 +16,21 @@ Codigo homologado: b25a413 (branch de testes).
   foto 551 ms. Rollback, novo processo e BLOB passaram.
 - Roleta 16 jogadores 1.869 ms; Blackjack 8 jogadores inicio 1.079 ms,
   maior acao 2.353 ms. Pote, prêmios e extratos conservados.
-- Restam somente as etapas de entrega: ZIP final antes do commit,
-  publicacao main, configuracao privada do principal Render, deploy e
-  verificacao de conta/carteiras/foto/sessao apos restart real.
+- ZIP final entregue antes do commit; 125 arquivos, hashes iguais aos
+  fontes, sem segredos, bancos, node_modules ou .git.
+- Principal Render srv-dauq2jo473hc73c6htgg conectado ao Turso. Deploy
+  dep-db3o1grtqb8s73ep5eng Live, Node 20.20.2, build zero vulnerabilidades.
+- Teste pelo site publicado confirmou cadastro e o mesmo usuario no
+  Turso, carteiras e foto. Restart real registrado em 8/10 as 08:40 GMT-3:
+  conta, saldos nas tres carteiras, sessao e foto persistiram. Conta
+  descartavel e checkpoint privado removidos depois da verificacao.
+- Auto-Deploy principal reativado em On Commit para a main. Previa
+  gratuita de homologacao suspensa para poupar horas e evitar repetir
+  testes no banco publicado. Nenhum plano pago foi contratado.
+- Banco novo vazio autorizado pelo proprietario; contas do banco
+  descartavel anterior nao foram migradas. Criar novamente a conta wl07.
+- Este relatorio registra a entrega comprovada; o commit de encerramento
+  altera somente documentacao, sem mudar o codigo homologado.
 - As linhas abaixo registram o historico dos checkpoints e diagnósticos;
   falhas antigas nao representam o estado atual homologado.
 
