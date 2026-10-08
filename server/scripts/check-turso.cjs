@@ -15,6 +15,8 @@ async function main() {
     stage = "inicializar schema";
     const pool = require("../src/config/database");
     assert.equal(pool.remote, true);
+    stage = "carregar modulos do jogo";
+    const { settleInstant } = require("../src/services/rounds");
     const existingName = process.env.ARCADIA_TURSO_VERIFY_USER;
     if (existingName) {
         stage = "verificar persistencia";
@@ -54,7 +56,6 @@ async function main() {
         pool.batchSync(["solo", "duel", "coop"].map((kind) => ({ sql: "INSERT INTO wallets (user_id,kind,balance) VALUES (?,?,1000000)", params: [id, kind] })));
         return id;
     }));
-    const { settleInstant } = require("../src/services/rounds");
     measure("Primeira aposta com conquistas", () => settleInstant(id, "dice", 100, 140, "win", { picked: 6, roll: 6 }));
     measure("Segunda aposta sem recompensa duplicada", () => settleInstant(id, "dice", 100, 100, "push", { picked: 6, roll: 6 }));
     const missions = require("../src/services/progression.routes");

@@ -7,6 +7,25 @@ Checkpoint commitado e enviado somente na branch de testes: 7c0c45c.
 
 ## Resultado da previa Render
 
+- Segundo deploy de diagnostico: 9d02ce5, dep-db3n53k9v7es73do0db0.
+  Build confirmou ZERO vulnerabilidades. Falha continuou sem codigo de
+  banco; a etapa Criar conta tambem incluia require dos modulos de jogo.
+  Previa nao tinha JWT_SECRET, exigido por esses modulos em producao.
+  Probe agora fornece chave aleatoria efemera so ao teste isolado, sem
+  expor login. Etapa de carregamento separada. Confirmar no proximo deploy.
+  Duas contas descartaveis removidas; previa suspensa durante os ajustes.
+- Liquidacao coletiva agrupada: partidas/missoes, snapshots de progressao,
+  conquistas, moedas, extratos e XP sob a mesma transacao. Criterios do
+  catalogo compartilhados entre chamadas individuais e coletivas.
+  Blackjack agrupa tambem debitos/premios, inventarios e Amigos Ricos.
+- Suite completa: 140/140 passaram. Novos testes de 16 participantes,
+  requests limitados, equivalencia com liquidacao individual e rollback
+  total quando falha o extrato do ultimo participante.
+- Turso real local: Roleta 16 participantes 328 ms (antes 4.067 ms);
+  Blackjack 8 participantes inicio 138 ms, maior acao 366 ms, soma de
+  premios correta. Conta/recompensas/missao/foto/rollback/reinicio passaram.
+  Medicao no Render continua obrigatoria antes de liberar.
+
 - Retomada das 07h27 iniciada com 100% da janela e 500 creditos adicionais.
   Agendamento unico removido. Novos testes: 137/137 passaram.
 - Diagnostico preserva o erro original quando o rollback tambem falha;

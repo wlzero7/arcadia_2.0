@@ -45,6 +45,47 @@ const ACHIEVEMENTS = {
     platinum: meta("Platina", 0, "Desbloqueie todas as outras 39 conquistas."),
 };
 const checking = new Set();
+function profileQueries(userId) {
+    return [
+        { method: "all", sql: "SELECT COALESCE(w.balance, 1000000) AS balance FROM (SELECT 'solo' AS kind UNION ALL SELECT 'duel' UNION ALL SELECT 'coop') k LEFT JOIN wallets w ON w.kind = k.kind AND w.user_id = ? WHERE EXISTS (SELECT 1 FROM users WHERE id = ?)", params: [userId, userId] },
+        { method: "get", sql: "SELECT 1 FROM friendships WHERE status = 'accepted' AND (user_id = ? OR friend_id = ?) LIMIT 1", params: [userId, userId] },
+        { method: "all", sql: "SELECT rarity FROM slots_cards WHERE user_id = ? UNION SELECT rarity FROM blackjack_cards WHERE user_id = ?", params: [userId, userId] },
+        { method: "get", sql: "SELECT SUM(CASE WHEN outcome = 'win' THEN 1 ELSE 0 END) AS wins, SUM(MAX(wager - payout, 0)) AS lost FROM bets WHERE user_id = ?", params: [userId] },
+        { method: "get", sql: "SELECT wins FROM duel_stats WHERE user_id = ?", params: [userId] },
+        { method: "get", sql: "SELECT COUNT(*) AS n FROM bets WHERE user_id = ? AND outcome = 'win' AND (json_extract(detail, '$.mode') = 'coop' OR json_extract(detail, '$.roomCode') IS NOT NULL OR json_extract(detail, '$.tableCode') IS NOT NULL)", params: [userId] },
+        { method: "all", sql: "SELECT mission_key, period FROM user_missions WHERE user_id = ? AND completed = 1", params: [userId] },
+        { method: "all", sql: "SELECT achievement_key FROM user_achievements WHERE user_id = ?", params: [userId] },
+        { method: "get", sql: "SELECT id, xp, level FROM users WHERE id = ?", params: [userId] },
+    ];
+}
+function profileState(rows) {
+    const [wallets, friend, cards, stats, duel, coop, missions, achievements, user] = rows;
+    return { wallets, friend, cards, stats, duel, coop, missions, user,
+        owned: new Set(achievements.map((item) => item.achievement_key)), level: user?.level || 1 };
+}
+function visitProfileRewards(state, award) {
+    const wealth = () => {
+        const total = state.wallets.reduce((sum, wallet) => sum + wallet.balance, 0);
+        award("rich", state.wallets.some((wallet) => wallet.balance >= 2000000));
+        award("magnate", total >= 100000000); award("billionaire", total >= 1000000000);
+    };
+    wealth(); award("new_bonds", !!state.friend);
+    const rarities = new Set(state.cards.map((card) => card.rarity));
+    award("trump_king", rarities.has("cromatica") && rarities.has("lendaria"));
+    award("winner_1000", state.stats.wins >= 1000); award("poor", state.stats.lost >= 1000000);
+    award("duel_5", (state.duel?.wins || 0) >= 5); award("coop_5", state.coop.n >= 5);
+    award("daily_worker", state.missions.filter((mission) => mission.mission_key.startsWith("daily_")).length >= 3);
+    award("missionary", state.missions.length >= 30);
+    let previous = -1;
+    for (let i = 0; i < 40 && previous !== state.owned.size; i++) {
+        previous = state.owned.size;
+        wealth();
+        for (const n of [25, 50, 75, 100]) award(`level_${n}_new`, state.level >= n);
+        const count = Object.keys(ACHIEVEMENTS).filter((key) => state.owned.has(key)).length;
+        award("conqueror", count >= 25);
+        award("platinum", Object.keys(ACHIEVEMENTS).every((key) => key === "platinum" || state.owned.has(key)));
+    }
+}
 function unlockAchievement(userId, key, checkProfile = true) {
     if (!Object.hasOwn(ACHIEVEMENTS, key)) return null;
     return pool.transactionSync(() => {
@@ -63,52 +104,18 @@ function checkProfileAchievements(userId) {
     const unlocked = [];
     try {
         return pool.transactionSync(() => {
-            const [wallets, friend, cards, stats, duel, coop, missions, achievements, user] = pool.batchSync([
-                { method: "all", sql: "SELECT COALESCE(w.balance, 1000000) AS balance FROM (SELECT 'solo' AS kind UNION ALL SELECT 'duel' UNION ALL SELECT 'coop') k LEFT JOIN wallets w ON w.kind = k.kind AND w.user_id = ? WHERE EXISTS (SELECT 1 FROM users WHERE id = ?)", params: [userId, userId] },
-                { method: "get", sql: "SELECT 1 FROM friendships WHERE status = 'accepted' AND (user_id = ? OR friend_id = ?) LIMIT 1", params: [userId, userId] },
-                { method: "all", sql: "SELECT rarity FROM slots_cards WHERE user_id = ? UNION SELECT rarity FROM blackjack_cards WHERE user_id = ?", params: [userId, userId] },
-                { method: "get", sql: "SELECT SUM(CASE WHEN outcome = 'win' THEN 1 ELSE 0 END) AS wins, SUM(MAX(wager - payout, 0)) AS lost FROM bets WHERE user_id = ?", params: [userId] },
-                { method: "get", sql: "SELECT wins FROM duel_stats WHERE user_id = ?", params: [userId] },
-                { method: "get", sql: "SELECT COUNT(*) AS n FROM bets WHERE user_id = ? AND outcome = 'win' AND (json_extract(detail, '$.mode') = 'coop' OR json_extract(detail, '$.roomCode') IS NOT NULL OR json_extract(detail, '$.tableCode') IS NOT NULL)", params: [userId] },
-                { method: "all", sql: "SELECT mission_key, period FROM user_missions WHERE user_id = ? AND completed = 1", params: [userId] },
-                { method: "all", sql: "SELECT achievement_key FROM user_achievements WHERE user_id = ?", params: [userId] },
-                { method: "get", sql: "SELECT level FROM users WHERE id = ?", params: [userId] },
-            ]);
-            const owned = new Set(achievements.map((item) => item.achievement_key));
-            let level = user?.level || 1;
+            const state = profileState(pool.batchSync(profileQueries(userId)));
             const award = (key, condition) => {
-                if (!condition || owned.has(key)) return;
+                if (!condition || state.owned.has(key)) return;
                 const item = unlockAchievement(userId, key, false);
-                owned.add(key);
+                state.owned.add(key);
                 if (item) {
                     unlocked.push(item);
-                    if (item.levelInfo) level = item.levelInfo.level;
-                    for (const wallet of wallets) wallet.balance += ACHIEVEMENT_AC;
+                    if (item.levelInfo) state.level = item.levelInfo.level;
+                    for (const wallet of state.wallets) wallet.balance += ACHIEVEMENT_AC;
                 }
             };
-            const total = wallets.reduce((sum, w) => sum + w.balance, 0);
-            award("rich", wallets.some((w) => w.balance >= 2000000));
-            award("magnate", total >= 100000000); award("billionaire", total >= 1000000000);
-            award("new_bonds", !!friend);
-            const rarities = new Set(cards.map((r) => r.rarity));
-            award("trump_king", rarities.has("cromatica") && rarities.has("lendaria"));
-            award("winner_1000", stats.wins >= 1000); award("poor", stats.lost >= 1000000);
-            award("duel_5", (duel?.wins || 0) >= 5);
-            award("coop_5", coop.n >= 5);
-            award("daily_worker", missions.filter((m) => m.mission_key.startsWith("daily_")).length >= 3);
-            award("missionary", missions.length >= 30);
-            // Rewards may cross another level or achievement milestone; converge without double rewards.
-            let previous = -1;
-            for (let i = 0; i < 40 && previous !== unlocked.length; i++) {
-                previous = unlocked.length;
-                const currentTotal = wallets.reduce((sum, w) => sum + w.balance, 0);
-                award("rich", wallets.some((w) => w.balance >= 2000000));
-                award("magnate", currentTotal >= 100000000); award("billionaire", currentTotal >= 1000000000);
-                for (const n of [25, 50, 75, 100]) award(`level_${n}_new`, level >= n);
-                const count = Object.keys(ACHIEVEMENTS).filter((key) => owned.has(key)).length;
-                award("conqueror", count >= 25);
-                award("platinum", Object.keys(ACHIEVEMENTS).every((key) => key === "platinum" || owned.has(key)));
-            }
+            visitProfileRewards(state, award);
             return unlocked;
         });
     } finally { checking.delete(userId); }
@@ -116,19 +123,9 @@ function checkProfileAchievements(userId) {
 function streak(rows, outcome, count) {
     return rows.length >= count && rows.slice(0, count).every((row) => row.outcome === outcome);
 }
-function applyGameProgression(userId, { game, outcome, multiplier, wager, detail = {} }, baseXP = 0) {
-    return pool.transactionSync(() => {
+function gameRewardKeys({ game, outcome, multiplier, wager, detail = {} }, owned, recent, gameRecent) {
     const played = game === "duel" ? detail.game : game === "blackjack-mp" ? "blackjack" : game;
-    const queries = [
-        { method: "all", sql: "SELECT achievement_key FROM user_achievements WHERE user_id = ?", params: [userId] },
-        { method: "get", sql: "SELECT id, xp, level FROM users WHERE id = ?", params: [userId] },
-        { method: "all", sql: "SELECT outcome FROM bets WHERE user_id = ? ORDER BY id DESC LIMIT 20", params: [userId] },
-    ];
-    if (["mines", "roulette"].includes(played) && outcome === "win") queries.push({ method: "all", sql: "SELECT outcome FROM bets WHERE user_id = ? AND CASE WHEN game = 'duel' THEN json_extract(detail, '$.game') WHEN game = 'blackjack-mp' THEN 'blackjack' ELSE game END = ? ORDER BY id DESC LIMIT 25", params: [userId, played] });
-    const [achievements, user, recent, gameRecent = []] = pool.batchSync(queries);
-    if (!user) throw new Error("Usuario nao encontrado.");
     const pending = [];
-    const owned = new Set(achievements.map((item) => item.achievement_key));
     const award = (key, condition) => {
         if (!condition || owned.has(key)) return;
         owned.add(key); pending.push(key);
@@ -154,25 +151,63 @@ function applyGameProgression(userId, { game, outcome, multiplier, wager, detail
     award("defeated_10", outcome === "loss" && streak(recent, "loss", 10));
     award("born_miner", played === "mines" && won && streak(gameRecent, "win", 25));
     award("roulette_10", played === "roulette" && won && streak(gameRecent, "win", 10));
-    const inserted = pool.batchSync(pending.map((key) => ({ sql: "INSERT OR IGNORE INTO user_achievements (user_id, achievement_key) VALUES (?, ?)", params: [userId, key] })));
-    const keys = pending.filter((_, index) => inserted[index].changes);
-    if (keys.length) pool.creditAllWalletsSync(userId, keys.map((key) => ({ amount: ACHIEVEMENT_AC, kind: "payout", refType: "achievement", refId: key })));
-    const xp = baseXP + keys.reduce((sum, key) => sum + ACHIEVEMENTS[key].xp, 0);
-    let levelInfo = null;
-    // The snapshot was read under the write lock; apply all earned XP once.
-    if (xp) {
-        levelInfo = calculateXP(user, xp);
-        pool.db.run("UPDATE users SET xp = ?, level = ? WHERE id = ?", [levelInfo.xp, levelInfo.level, userId]);
-    }
-    const unlocked = keys.map((key) => ({ key, ...ACHIEVEMENTS[key], ac: ACHIEVEMENT_AC, levelInfo: ACHIEVEMENTS[key].xp ? levelInfo : null }));
-    unlocked.push(...checkProfileAchievements(userId));
-    if (levelInfo) {
-        const final = pool.db.get("SELECT xp, level FROM users WHERE id = ?", [userId]);
-        levelInfo.leveledUp ||= final.level > levelInfo.level;
-        Object.assign(levelInfo, final, { xpNext: xpForNextLevel(final.level) });
-    }
-    return { levelInfo, unlocked };
+    return pending;
+}
+function applyGameProgressions(entries) {
+    if (!entries.length) return [];
+    if (new Set(entries.map((entry) => entry.userId)).size !== entries.length) throw new Error("Jogador duplicado na liquidacao.");
+    return pool.transactionSync(() => {
+        const queries = entries.map(({ userId, round }) => {
+            const played = round.game === "duel" ? round.detail?.game : round.game === "blackjack-mp" ? "blackjack" : round.game;
+            const statements = [...profileQueries(userId),
+                { method: "all", sql: "SELECT outcome FROM bets WHERE user_id = ? ORDER BY id DESC LIMIT 20", params: [userId] }];
+            if (["mines", "roulette"].includes(played) && round.outcome === "win") statements.push({ method: "all", sql: "SELECT outcome FROM bets WHERE user_id = ? AND CASE WHEN game = 'duel' THEN json_extract(detail, '$.game') WHEN game = 'blackjack-mp' THEN 'blackjack' ELSE game END = ? ORDER BY id DESC LIMIT 25", params: [userId, played] });
+            return statements;
+        });
+        const rows = pool.batchSync(queries.flat());
+        let offset = 0;
+        // All participant snapshots share the same write lock. Plan XP and chained
+        // milestones in memory, then persist ownership, balances and ledgers together.
+        const planned = entries.map(({ userId, round, baseXP = 0, forcedKeys = [] }, index) => {
+            const result = rows.slice(offset, offset + queries[index].length);
+            offset += queries[index].length;
+            const state = profileState(result);
+            if (!state.user) throw new Error("Usuario nao encontrado.");
+            const keys = gameRewardKeys(round, state.owned, result[9], result[10] || []);
+            for (const key of forcedKeys) {
+                if (!Object.hasOwn(ACHIEVEMENTS, key)) throw new Error("Conquista invalida.");
+                if (!state.owned.has(key)) { state.owned.add(key); keys.push(key); }
+            }
+            const earned = baseXP + keys.reduce((sum, key) => sum + ACHIEVEMENTS[key].xp, 0);
+            let current = earned ? calculateXP(state.user, earned) : { ...state.user };
+            const levelInfo = earned ? { ...current } : null;
+            state.level = current.level;
+            for (const wallet of state.wallets) wallet.balance += keys.length * ACHIEVEMENT_AC;
+            const unlocked = keys.map((key) => ({ key, ...ACHIEVEMENTS[key], ac: ACHIEVEMENT_AC, levelInfo: ACHIEVEMENTS[key].xp ? levelInfo : null }));
+            visitProfileRewards(state, (key, condition) => {
+                if (!condition || state.owned.has(key)) return;
+                state.owned.add(key); keys.push(key);
+                const info = ACHIEVEMENTS[key].xp ? calculateXP(current, ACHIEVEMENTS[key].xp) : null;
+                if (info) { current = info; state.level = info.level; }
+                for (const wallet of state.wallets) wallet.balance += ACHIEVEMENT_AC;
+                unlocked.push({ key, ...ACHIEVEMENTS[key], ac: ACHIEVEMENT_AC, levelInfo: info });
+            });
+            if (levelInfo) Object.assign(levelInfo, { xp: current.xp, level: current.level, xpNext: xpForNextLevel(current.level), leveledUp: current.level > state.user.level });
+            return { userId, keys, current, result: { levelInfo, unlocked } };
+        });
+        const ownership = planned.flatMap(({ userId, keys }) => keys.map((key) => ({ sql: "INSERT OR IGNORE INTO user_achievements (user_id, achievement_key) VALUES (?, ?)", params: [userId, key] })));
+        const inserted = pool.batchSync(ownership);
+        if (inserted.some((row) => row.changes !== 1)) throw new Error("Conquista mudou durante a liquidacao.");
+        pool.creditWalletRewardsSync(planned.map(({ userId, keys }) => ({ userId, rewards: keys.map((key) => ({ amount: ACHIEVEMENT_AC, kind: "payout", refType: "achievement", refId: key })) })));
+        pool.batchSync(planned.map(({ userId, current }) => ({ sql: "UPDATE users SET xp = ?, level = ? WHERE id = ?", params: [current.xp, current.level, userId] })));
+        return planned.map((entry) => entry.result);
     });
+}
+function applyGameProgression(userId, round, baseXP = 0) {
+    return applyGameProgressions([{ userId, round, baseXP }])[0];
+}
+function unlockAchievements(entries) {
+    return applyGameProgressions(entries.map(({ userId, key }) => ({ userId, forcedKeys: [key], round: { game: "", outcome: "push", wager: 0, detail: {} } })));
 }
 function checkGameAchievements(userId, round) {
     return applyGameProgression(userId, round).unlocked;
@@ -181,4 +216,4 @@ function achievementCount(userId) {
     const keys = Object.keys(ACHIEVEMENTS);
     return pool.db.get(`SELECT COUNT(*) AS total FROM user_achievements WHERE user_id = ? AND achievement_key IN (${keys.map(() => "?").join(",")})`, [userId, ...keys]);
 }
-module.exports = { ACHIEVEMENTS, ACHIEVEMENT_AC, unlockAchievement, checkGameAchievements, checkProfileAchievements, achievementCount, applyGameProgression };
+module.exports = { ACHIEVEMENTS, ACHIEVEMENT_AC, unlockAchievement, unlockAchievements, checkGameAchievements, checkProfileAchievements, achievementCount, applyGameProgression, applyGameProgressions };

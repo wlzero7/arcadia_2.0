@@ -25,7 +25,11 @@ function handValue(cards, limit = 21) {
 }
 function inventory(userId) {
     const rows = pool.db.all("SELECT card_key, COUNT(*) AS qty FROM blackjack_cards WHERE user_id = ? GROUP BY card_key", [userId]);
-    return rows.filter((r) => Object.hasOwn(SPECIAL_CARDS, r.card_key)).map((r) => ({ key: r.card_key, qty: r.qty, ...SPECIAL_CARDS[r.card_key] }));
+    return inventoryRows(rows);
+}
+function inventoryRows(rows) { return rows.filter((r) => Object.hasOwn(SPECIAL_CARDS, r.card_key)).map((r) => ({ key: r.card_key, qty: r.qty, ...SPECIAL_CARDS[r.card_key] })); }
+function inventories(userIds) {
+    return pool.batchSync(userIds.map((id) => ({ method: "all", sql: "SELECT card_key, COUNT(*) AS qty FROM blackjack_cards WHERE user_id = ? GROUP BY card_key", params: [id] }))).map(inventoryRows);
 }
 function consume(userId, key) {
     const row = pool.db.get("SELECT id FROM blackjack_cards WHERE user_id = ? AND card_key = ? ORDER BY id LIMIT 1", [userId, key]);
@@ -105,4 +109,4 @@ function publicHand(state, finished = false) {
     const dealer = finished ? state.dealer : state.dealer.map((card, index) => index === 1 ? { hidden: true } : card);
     return { player: state.player, dealer, playerTotal: handValue(state.player, state.limit), dealerTotal: handValue(dealer.filter((c) => !c.hidden), state.limit), limit: state.limit || 21, nrg: state.nrg ?? 5, shield: !!state.shield, mirror: !!state.mirror, note: state.note || "", canDouble: !finished && !state.doubled && state.player.length === 2 && !(state.hits > 0) };
 }
-module.exports = { SUITS, RANKS, SPECIAL_CARDS, newDeck, handValue, inventory, consume, rollSpecialCard, addCard, drop, createHand, drawPlayer, useSpecial, stand, result, publicHand };
+module.exports = { SUITS, RANKS, SPECIAL_CARDS, newDeck, handValue, inventory, inventories, consume, rollSpecialCard, addCard, drop, createHand, drawPlayer, useSpecial, stand, result, publicHand };

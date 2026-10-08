@@ -329,20 +329,26 @@ function batchSync(statements) {
 }
 
 function creditAllWalletsSync(userId, rewards) {
-    if (!rewards.length) return;
-    const total = rewards.reduce((sum, reward) => {
-        if (!Number.isSafeInteger(reward.amount) || reward.amount <= 0 || !["payout", "daily_bonus"].includes(reward.kind)) throw new Error("Recompensa invalida.");
-        return sum + reward.amount;
-    }, 0);
-    if (!Number.isSafeInteger(total)) throw new Error("Recompensa fora do limite permitido.");
+    return creditWalletRewardsSync([{ userId, rewards }]);
+}
+function creditWalletRewardsSync(entries) {
+    const groups = entries.filter((entry) => entry.rewards.length).map(({ userId, rewards }) => {
+        const total = rewards.reduce((sum, reward) => {
+            if (!Number.isSafeInteger(reward.amount) || reward.amount <= 0 || !["payout", "daily_bonus"].includes(reward.kind)) throw new Error("Recompensa invalida.");
+            return sum + reward.amount;
+        }, 0);
+        if (!Number.isSafeInteger(total)) throw new Error("Recompensa fora do limite permitido.");
+        return { userId, rewards, total };
+    });
+    if (!groups.length) return;
+    if (new Set(groups.map((group) => group.userId)).size !== groups.length) throw new Error("Recompensa duplicada no lote.");
     return transactionSync(() => {
-        const result = batchSync([
+        const result = batchSync(groups.flatMap(({ userId }) => [
             ...["solo", "coop", "duel"].map((kind) => ({ sql: "INSERT OR IGNORE INTO wallets (user_id, kind, balance) VALUES (?, ?, 1000000)", params: [userId, kind] })),
             { method: "all", sql: "SELECT id, balance FROM wallets WHERE user_id = ?", params: [userId] },
-        ]);
-        const wallets = result.at(-1);
+        ]));
         const statements = [];
-        for (const wallet of wallets) {
+        for (const [index, { rewards, total }] of groups.entries()) for (const wallet of result[index * 4 + 3]) {
             const balance = wallet.balance + total;
             if (!Number.isSafeInteger(balance)) throw new Error("Saldo fora do limite permitido.");
             statements.push({ sql: "UPDATE wallets SET balance = ?, updated_at = datetime('now') WHERE id = ?", params: [balance, wallet.id] });
@@ -390,6 +396,34 @@ function adjustBalanceSync(walletId, delta, kind, refType = null, refId = null) 
     });
 }
 
+function adjustWalletsSync(entries) {
+    if (!entries.length) return [];
+    const keys = entries.map(({ userId, walletKind }) => userId + ":" + walletKind);
+    if (new Set(keys).size !== keys.length || entries.some((entry) => !["solo", "duel", "coop"].includes(entry.walletKind))) throw new Error("Carteira invalida ou duplicada no lote.");
+    return transactionSync(() => {
+        const rows = batchSync(entries.flatMap(({ userId, walletKind }) => [
+            { sql: "INSERT OR IGNORE INTO wallets (user_id,kind,balance) VALUES (?,?,1000000)", params: [userId, walletKind] },
+            { method: "get", sql: "SELECT id,balance FROM wallets WHERE user_id=? AND kind=?", params: [userId, walletKind] },
+        ]));
+        const statements = [];
+        const wallets = entries.map((entry, index) => {
+            const wallet = rows[index * 2 + 1];
+            const delta = typeof entry.delta === "function" ? entry.delta(wallet) : entry.delta;
+            if (!Number.isSafeInteger(delta)) throw new Error("Valor invalido.");
+            const balance = wallet.balance + delta;
+            if (!Number.isSafeInteger(balance)) throw new Error("Saldo fora do limite permitido.");
+            if (balance < 0) throw new Error("Saldo insuficiente.");
+            statements.push(
+                { sql: "UPDATE wallets SET balance=?,updated_at=datetime('now') WHERE id=?", params: [balance, wallet.id] },
+                { sql: "INSERT INTO transactions (wallet_id,kind,amount,balance_after,ref_type,ref_id) VALUES (?,?,?,?,?,?)", params: [wallet.id, entry.kind, delta, balance, entry.refType || null, entry.refId || null] },
+            );
+            return { id: wallet.id, previousBalance: wallet.balance, balance };
+        });
+        batchSync(statements);
+        return wallets;
+    });
+}
+
 // Carteira por tipo (solo | coop | duel) — cria se não existir — 1.000.000 AC (config do William)
 function getWallet(userId, kind = "solo") {
     return Promise.resolve().then(() => getWalletSync(userId, kind));
@@ -418,8 +452,10 @@ module.exports = {
     transactionSync,
     batchSync,
     creditAllWalletsSync,
+    creditWalletRewardsSync,
     adjustBalance,
     adjustBalanceSync,
+    adjustWalletsSync,
     DB_PATH: remote ? "Turso (libSQL persistente)" : DB_PATH,
     remote,
 };

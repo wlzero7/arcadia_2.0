@@ -1,10 +1,13 @@
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 async function check(script) {
     const child = spawn(process.execPath, [path.join(__dirname, script)], {
         cwd: path.resolve(__dirname, ".."), stdio: ["ignore", "pipe", "pipe"],
+        // Authentication modules load in the probe, but no authentication routes are exposed.
+        env: { ...process.env, JWT_SECRET: process.env.JWT_SECRET || crypto.randomBytes(32).toString("hex") },
     });
     // These validation scripts emit only sanitized metrics, never SDK diagnostics.
     child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);

@@ -2,10 +2,11 @@ const pool = require("../config/database");
 const { code, random } = require("../services/random");
 const { GAMES } = require("../routes/game.routes");
 const { TRUMPS, resolveSpin, rollCardDrop } = require("../services/slotsEngine");
-const { wager, recordBet } = require("../services/rounds");
+const { wager, recordBet, recordBets } = require("../services/rounds");
 const roulette = require("../services/roulette");
 const { allocateShares } = require("../services/roomShares");
-const { unlockAchievement, trackRoomActivity } = require("../services/progression.routes");
+const { trackRoomActivity } = require("../services/progression.routes");
+const { unlockAchievements } = require("../services/achievements");
 const rooms = new Map();
 const { identity } = require("../services/avatars");
 const MULTI_GAMES = { dice: {}, coinflip: {}, crash: {}, roulette: {}, slots: {} };
@@ -24,24 +25,32 @@ function roomSummary(room) {
         activePlay: publicPlay(room.activePlay), serverTime: Date.now(),
         history: room.history.slice(-20), rBets: room.rBets, rLast: room.rLast };
 }
+function memberStatement(room, userId) {
+    return { sql: "INSERT INTO room_members (room_id, user_id, role, stake) VALUES (?, ?, ?, ?) ON CONFLICT(room_id, user_id) DO UPDATE SET role = excluded.role, stake = excluded.stake",
+        params: [room.id, userId, userId === room.hostId ? "host" : "player", room.stakes.get(userId) || 0] };
+}
 function persistRoomMember(room, userId) {
-    pool.db.run("INSERT INTO room_members (room_id, user_id, role, stake) VALUES (?, ?, ?, ?) ON CONFLICT(room_id, user_id) DO UPDATE SET role = excluded.role, stake = excluded.stake",
-        [room.id, userId, userId === room.hostId ? "host" : "player", room.stakes.get(userId) || 0]);
+    const statement = memberStatement(room, userId);
+    pool.db.run(statement.sql, statement.params);
 }
 function persistRoomCreate(room) {
     return pool.transactionSync(() => {
         const result = pool.db.run("INSERT INTO rooms (code, name, host_id, game, max_players, min_bet, max_bet) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [room.code, room.name, room.hostId, room.game, room.maxPlayers, room.minBet, room.maxBet]);
         room.id = result.lastInsertRowid;
-        pool.db.run("INSERT INTO room_pot (room_id, balance) VALUES (?, ?)", [room.id, room.pot]);
-        for (const id of room.members.keys()) persistRoomMember(room, id);
+        pool.batchSync([
+            { sql: "INSERT INTO room_pot (room_id, balance) VALUES (?, ?)", params: [room.id, room.pot] },
+            ...[...room.members.keys()].map((id) => memberStatement(room, id)),
+        ]);
     });
 }
 function persistRoom(room) {
-    pool.db.run("UPDATE rooms SET host_id = ? WHERE id = ?", [room.hostId, room.id]);
-    pool.db.run("UPDATE room_pot SET balance = ?, pending_bets = ?, history = ?, active_play = ? WHERE room_id = ?",
-        [room.pot, JSON.stringify(room.rBets), JSON.stringify(room.history), JSON.stringify(room.activePlay || null), room.id]);
-    for (const id of room.members.keys()) persistRoomMember(room, id);
+    pool.batchSync([
+        { sql: "UPDATE rooms SET host_id = ? WHERE id = ?", params: [room.hostId, room.id] },
+        { sql: "UPDATE room_pot SET balance = ?, pending_bets = ?, history = ?, active_play = ? WHERE room_id = ?",
+            params: [room.pot, JSON.stringify(room.rBets), JSON.stringify(room.history), JSON.stringify(room.activePlay || null), room.id] },
+        ...[...room.members.keys()].map((id) => memberStatement(room, id)),
+    ]);
 }
 function hydrateRooms() {
     const rows = pool.db.all("SELECT r.*, p.balance AS pot, p.pending_bets, p.history, p.active_play FROM rooms r JOIN room_pot p ON p.room_id = r.id WHERE r.status IN ('lobby','playing')");
@@ -106,7 +115,7 @@ function setupMultiplayer(io) {
             trackRoomActivity(play.playerId, room.code);
             room.activePlay = null; room.history.push(result);
             if (room.history.length > 100) room.history.shift();
-            if (room.pot >= 10000000) for (const [id, stake] of room.stakes) if (stake > 0) unlockAchievement(id, "rich_friends");
+            if (room.pot >= 10000000) unlockAchievements([...room.stakes].filter(([, stake]) => stake > 0).map(([userId]) => ({ userId, key: "rich_friends" })));
             return result;
         });
         io.to("room:" + room.code).emit("room:round", entry);
@@ -210,7 +219,7 @@ function setupMultiplayer(io) {
                 room.pot += amount;
                 if (!Number.isSafeInteger(room.pot)) throw new Error("Saldo fora do limite permitido.");
                 room.stakes.set(socket.userId, (room.stakes.get(socket.userId) || 0) + amount);
-                if (room.pot >= 10000000) for (const [id, stake] of room.stakes) if (stake > 0) unlockAchievement(id, "rich_friends");
+                if (room.pot >= 10000000) unlockAchievements([...room.stakes].filter(([, stake]) => stake > 0).map(([userId]) => ({ userId, key: "rich_friends" })));
             });
             broadcast(room);
             return { room: roomSummary(room) };
@@ -264,7 +273,7 @@ function setupMultiplayer(io) {
                 room.pot += result.payout - result.wager;
                 room.stakes = allocateShares(room.stakes, room.pot);
                 recordBet(socket.userId, room.game, result.wager, result.payout, result.outcome, { ...result, ...result.detail, allWin, baseWager: amount, roomCode: room.code });
-                if (room.pot >= 10000000) for (const [id, stake] of room.stakes) if (stake > 0) unlockAchievement(id, "rich_friends");
+                if (room.pot >= 10000000) unlockAchievements([...room.stakes].filter(([, stake]) => stake > 0).map(([userId]) => ({ userId, key: "rich_friends" })));
                 trackRoomActivity(socket.userId, room.code);
                 if (room.game === "slots") {
                     result.card = rollCardDrop(false);
@@ -306,13 +315,13 @@ function setupMultiplayer(io) {
                 room.pot += result.totalPayout;
                 room.stakes = allocateShares(room.stakes, room.pot);
                 room.rLast = result;
-                for (const userId of new Set(room.rBets.map((b) => b.userId))) {
+                const settlements = [...new Set(room.rBets.map((b) => b.userId))].map((userId) => {
                     const bets = result.results.filter((b) => b.userId === userId);
                     const amount = bets.reduce((s, b) => s + b.amount, 0);
                     const payout = bets.reduce((s, b) => s + b.payout, 0);
-                    recordBet(userId, "roulette", amount, payout, payout > amount ? "win" : payout === amount ? "push" : "loss", { results: bets, allWin: bets.length === 1 && bets[0].allWin, roomCode: room.code });
-                    trackRoomActivity(userId, room.code);
-                }
+                    return { userId, game: "roulette", amount, payout, outcome: payout > amount ? "win" : payout === amount ? "push" : "loss", detail: { results: bets, allWin: bets.length === 1 && bets[0].allWin, roomCode: room.code } };
+                });
+                recordBets(settlements, true);
                 room.rBets = [];
                 return addHistory(room, { ...result, type: "roulette", wager: result.totalWager, payout: result.totalPayout });
             });

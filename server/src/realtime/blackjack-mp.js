@@ -6,7 +6,7 @@
 const pool = require("../config/database");
 const { random, code: secureCode } = require("../services/random");
 const store = require("../services/realtimeStore");
-const { recordBet } = require("../services/rounds");
+const { wager, recordBets } = require("../services/rounds");
 const bj = require("../services/blackjack");
 const { allocateShares } = require("../services/roomShares");
 
@@ -163,15 +163,17 @@ function finishRound(t, io, code) {
             // Solo practice at an empty table does not advance multiplayer missions.
             const winners = results.filter((r) => r.won);
             const shares = allocateShares(new Map((winners.length ? winners : results).map((r) => [r.id, winners.length ? 1 : t.players.get(r.id).wager || 1])), t.pot || 0);
+            const settlements = [];
+            if (t.order.length >= 2) pool.adjustWalletsSync(results.filter((result) => shares.get(result.id) > 0).map((result) => ({ userId: result.id, walletKind: "coop", delta: shares.get(result.id), kind: "payout", refType: "blackjack", refId: code })));
             if (t.order.length >= 2) for (const result of results) {
                 const player = t.players.get(result.id);
                 const payout = shares.get(result.id) || 0, amount = player.wager || 0;
-                if (payout) pool.adjustBalanceSync(pool.getWalletSync(result.id, "coop").id, payout, "payout", "blackjack", code);
                 result.payout = payout;
                 const outcome = amount ? payout > amount ? "win" : payout === amount ? "push" : "loss" : result.won ? "win" : "loss";
                 result.wager = amount; result.outcome = outcome;
-                recordBet(result.id, "blackjack-mp", amount, payout, outcome, { tableCode: code, player: player.hand, playerTotal: result.total, hits: player.hits ?? Math.max(0, player.hand.length - 2), allWin: player.allWin === true });
+                settlements.push({ userId: result.id, game: "blackjack-mp", amount, payout, outcome, detail: { tableCode: code, player: player.hand, playerTotal: result.total, hits: player.hits ?? Math.max(0, player.hand.length - 2), allWin: player.allWin === true } });
             }
+            recordBets(settlements);
             t.pot = 0;
             t.results = results;
             store.save("blackjack", t);
@@ -206,15 +208,17 @@ function dealRound(t, restoreEnergy = false) {
     t.deck = newDeck();
     t.discard = [];
     t.order = [];
+    const wagers = onlinePlayers.filter(([, player]) => player.pendingBet);
+    const charged = pool.adjustWalletsSync(wagers.map(([id, player]) => ({ userId: id, walletKind: "coop", kind: "bet", refType: "blackjack", refId: t.code,
+        delta: (wallet) => -wager(player.pendingBet.allWin ? wallet.balance : player.pendingBet.amount, player.pendingBet.allWin ? 1 : 10, player.pendingBet.allWin ? Number.MAX_SAFE_INTEGER : 1000000) })));
+    const balances = new Map(wagers.map(([id], index) => [id, charged[index]]));
     for (const [id, p] of t.players) {
         const online = p.socketIds.size > 0;
         p.wager = 0; p.allWin = false;
         if (online && p.pendingBet) {
-            const wallet = pool.getWalletSync(id, "coop");
-            const amount = require("../services/rounds").resolveWager(id, { amount: p.pendingBet.amount, allWin: p.pendingBet.allWin }, "coop");
-            pool.adjustBalanceSync(wallet.id, -amount, "bet", "blackjack", t.code);
-            p.wager = amount; p.allWin = amount === wallet.balance;
-            t.pot += amount;
+            const wallet = balances.get(id);
+            p.wager = wallet.previousBalance - wallet.balance; p.allWin = wallet.balance === 0;
+            t.pot += p.wager;
             if (!Number.isSafeInteger(t.pot)) throw new Error("Saldo fora do limite permitido.");
         }
         p.pendingBet = null;
@@ -230,11 +234,12 @@ function dealRound(t, restoreEnergy = false) {
     }
     t.turnIdx = 0;
     t.phase = "playing";
-    if (t.pot >= 10000000) for (const id of t.order) require("../services/achievements").unlockAchievement(id, "rich_friends");
+    if (t.pot >= 10000000) require("../services/achievements").unlockAchievements(t.order.map((userId) => ({ userId, key: "rich_friends" })));
 }
 
 function broadcastTable(t, io) {
-    for (const [id,p] of t.players) p.specials = bj.inventory(id).flatMap((c) => Array(c.qty).fill(c.key));
+    const inventory = bj.inventories([...t.players.keys()]);
+    [...t.players.values()].forEach((player, index) => { player.specials = inventory[index].flatMap((card) => Array(card.qty).fill(card.key)); });
     store.save("blackjack", t);
     io.to("bj:" + t.code).emit("bj:state", tableState(t));
     for (const p of t.players.values()) for (const socketId of p.socketIds) {

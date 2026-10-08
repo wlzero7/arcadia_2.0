@@ -104,7 +104,7 @@ function progressMission(userId, key, amount = 1, now = new Date()) {
 }
 
 // Hooks de jogo
-function trackGameActivity(userId, { game, outcome, wager, detail = {} }, now = new Date(), checkAchievements = true) {
+function gameMissionStatements(userId, { game, outcome, wager, detail = {} }, now = new Date()) {
     const updates = [];
     const add = (key, amount = 1) => { const statement = missionStatement(userId, key, amount, now); if (statement) updates.push(statement); };
     const mode = game === "duel" ? "duel" : detail.roomCode || detail.tableCode ? "coop" : "solo";
@@ -130,7 +130,10 @@ function trackGameActivity(userId, { game, outcome, wager, detail = {} }, now = 
     if (mode === "coop") add("daily_coop_3");
     if (playedGame === "blackjack-mp" && outcome === "win") add("daily_blackjack_mp_win");
     if (mode === "duel") add("daily_duel_3");
-    const results = pool.batchSync(updates);
+    return updates;
+}
+function trackGameActivity(userId, event, now = new Date(), checkAchievements = true) {
+    const results = pool.batchSync(gameMissionStatements(userId, event, now));
     if (checkAchievements && results.some((row) => row?.completed)) checkProfileAchievements(userId);
 }
 
@@ -147,6 +150,12 @@ function trackLoginActivity(userId, now = new Date()) {
 function trackRoomActivity(userId, roomCode, now = new Date()) {
     const result = pool.db.run("INSERT OR IGNORE INTO mission_rooms (user_id, period, room_code) VALUES (?, ?, ?)", [userId, weekKey(now), roomCode]);
     if (result.changes) progressMission(userId, "weekly_rooms_5", 1, now);
+}
+function roomMissionStatements(userId, roomCode, now = new Date()) {
+    return [
+        { sql: "INSERT OR IGNORE INTO mission_rooms (user_id, period, room_code) VALUES (?, ?, ?)", params: [userId, weekKey(now), roomCode] },
+        missionStatement(userId, "weekly_rooms_5", 1, now, true),
+    ];
 }
 
 function trackDuelActivity(userId, won = false) {
@@ -257,4 +266,4 @@ router.post("/bugs/:id/review", authenticate, (req, res) => {
     if (!result) return res.status(409).json({ status: "error", message: "Relato inexistente ou já analisado." });
     res.json({ status: "success", ...result });
 });
-module.exports = { router, ACHIEVEMENTS, unlockAchievement, checkGameAchievements, checkProfileAchievements, trackGameActivity, trackRoomActivity, trackDuelActivity, trackLoginActivity, claimMission, weekKey, todayKey, resets };
+module.exports = { router, ACHIEVEMENTS, unlockAchievement, checkGameAchievements, checkProfileAchievements, trackGameActivity, gameMissionStatements, roomMissionStatements, trackRoomActivity, trackDuelActivity, trackLoginActivity, claimMission, weekKey, todayKey, resets };

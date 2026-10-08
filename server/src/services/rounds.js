@@ -1,6 +1,6 @@
 const pool = require("../config/database");
-const { applyGameProgression } = require("./achievements");
-const { trackGameActivity } = require("./progression.routes");
+const { applyGameProgressions } = require("./achievements");
+const { gameMissionStatements, roomMissionStatements } = require("./progression.routes");
 const { xpForRound } = require("./progression");
 
 function wager(value, min = 10, max = 1000000) {
@@ -32,11 +32,25 @@ function startRound(userId, game, amount, state) {
     });
 }
 function recordBet(userId, game, amount, payout, outcome, detail = {}) {
-    const multiplier = amount ? Number((payout / amount).toFixed(4)) : 0;
-    pool.db.run("INSERT INTO bets (user_id, game, wager, multiplier, payout, outcome, detail) VALUES (?, ?, ?, ?, ?, ?, ?)", [userId, game, amount, multiplier, payout, outcome, JSON.stringify(detail)]);
-    if (game === "mines" && outcome === "push" && detail.picks === 0) return { levelInfo: null, unlocked: [], cancelled: true };
-    trackGameActivity(userId, { game, wager: amount, outcome, detail }, new Date(), false);
-    return applyGameProgression(userId, { game, wager: amount, outcome, multiplier, detail }, xpForRound(amount));
+    return recordBets([{ userId, game, amount, payout, outcome, detail }])[0];
+}
+function recordBets(entries, trackRooms = false) {
+    if (new Set(entries.map((entry) => entry.userId)).size !== entries.length) throw new Error("Jogador duplicado na liquidacao.");
+    return pool.transactionSync(() => {
+        const now = new Date();
+        const rounds = entries.map(({ userId, game, amount, payout, outcome, detail = {} }) => ({
+            userId, round: { game, wager: amount, payout, outcome, detail, multiplier: amount ? Number((payout / amount).toFixed(4)) : 0 },
+            cancelled: game === "mines" && outcome === "push" && detail.picks === 0,
+        }));
+        pool.batchSync(rounds.flatMap(({ userId, round, cancelled }) => [
+            { sql: "INSERT INTO bets (user_id, game, wager, multiplier, payout, outcome, detail) VALUES (?, ?, ?, ?, ?, ?, ?)", params: [userId, round.game, round.wager, round.multiplier, round.payout, round.outcome, JSON.stringify(round.detail)] },
+            ...(cancelled ? [] : gameMissionStatements(userId, round, now)),
+            ...(trackRooms && round.detail.roomCode && !cancelled ? roomMissionStatements(userId, round.detail.roomCode, now) : []),
+        ]));
+        const results = applyGameProgressions(rounds.filter((entry) => !entry.cancelled).map((entry) => ({ ...entry, baseXP: xpForRound(entry.round.wager) })));
+        let index = 0;
+        return rounds.map((entry) => entry.cancelled ? { levelInfo: null, unlocked: [], cancelled: true } : results[index++]);
+    });
 }
 function settleRound(userId, game, payout, outcome, detail) {
     return pool.transactionSync(() => {
@@ -69,4 +83,4 @@ function handler(fn) {
         }
     };
 }
-module.exports = { wager, resolveWager, getSession, saveSession, startRound, settleRound, settleInstant, recordBet, handler };
+module.exports = { wager, resolveWager, getSession, saveSession, startRound, settleRound, settleInstant, recordBet, recordBets, handler };
