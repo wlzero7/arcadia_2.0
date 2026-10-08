@@ -1,5 +1,10 @@
 # Conector AMS - checkpoint local, 8 de outubro de 2026
 
+Atualizacao posterior: proprietario autorizou main e Render. Codigo validado
+pode ser publicado DESATIVADO; a ativacao real continua dependente dos gates
+abaixo. Os avisos historicos de nao publicar foram substituidos somente para
+a publicacao do codigo, nao para remover controles ou alterar jogadores reais.
+
 Branch: feature/ams-account-bridge, base 3d69ce3 (futebol/comunidade publicados).
 O proprietario autorizou preparar e testar LOCALMENTE a integracao de contas.
 Nao publicar este conector na main, Render ou modificar jogadores reais.

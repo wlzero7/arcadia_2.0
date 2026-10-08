@@ -55,3 +55,15 @@ orientacao posterior diferente do usuario.
   3d69ce3 e verificada no Render. Nao confundir com o novo conector local.
 - Conector desativado sem chave publica Ed25519. Operacoes devem manter MFA,
   justificativa, confirmacao no AMS, idempotencia, atomicidade e auditoria.
+
+## Autorizacao posterior de publicacao (8 de outubro de 2026)
+
+- O proprietario autorizou agora publicar a atualizacao validada em main e
+  atualizar o Render. Substitui a restricao local acima para PUBLICAR o codigo
+  do conector desativado; nao remover suas validacoes nem configurar chaves
+  reais antes de MFA, rotacao de segredos e verificacoes de producao.
+- Novo pedido: leilao automatico de 25 segundos, capital reservado no Duelo,
+  apresentacao multiplayer, sons e sete trunfos Blackjack. Desenvolver em
+  branch separada e publicar somente depois de validar a atualizacao inteira.
+- Recuperacao reinicia a mesma rodada sem alterar saldos; Jogada Perfeita e
+  Amoroso calculam sempre 21, mesmo com um limite de mesa diferente.
