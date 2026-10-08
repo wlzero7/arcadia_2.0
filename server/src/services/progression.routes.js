@@ -5,12 +5,7 @@
 
 const pool = require("../config/database");
 const { grantXP } = require("./progression");
-const { ACHIEVEMENTS, unlockAchievement, checkGameAchievements, checkProfileAchievements } = require("./achievements");
-
-// ========================================
-// CONQUISTAS — catálogo por chave (nome/editável depois)
-// ========================================
-
+const { ACHIEVEMENTS, unlockAchievement, checkProfileAchievements } = require("./achievements");
 
 // ========================================
 // MISSÕES — diárias e semanais (chaves genéricas)
@@ -43,16 +38,32 @@ const MISSIONS = {
     weekly_login_4: { period: "weekly", category: "login", target: 4, xp: 400, desc: "Entre em 4 dias diferentes" },
     weekly_play_100: { period: "weekly", category: "play", target: 100, xp: 800, desc: "Jogue 100 rodadas" },
     weekly_win_30: { period: "weekly", category: "win", target: 30, xp: 1000, desc: "Vença 30 rodadas" },
-    weekly_rooms_5: { period: "weekly", category: "social", mode: "coop", target: 5, xp: 600, desc: "Jogue em 5 salas diferentes" },
-    weekly_duel_1: { period: "weekly", category: "social", mode: "duel", target: 1, xp: 700, desc: "Complete 1 duelo x1" },
+    weekly_rooms_5: { period: "weekly", category: "social", target: 5, xp: 600, desc: "Entre em 5 salas diferentes" },
+    weekly_duel_1: { period: "weekly", category: "social", mode: "duel", target: 1, xp: 400, desc: "Complete um duelo" },
     weekly_coinflip_30: { period: "weekly", category: "game", game: "coinflip", target: 30, xp: 500, desc: "Jogue 30 rodadas de Coin Flip" },
     weekly_bet_5000: { period: "weekly", category: "wager", target: 5000, xp: 500, desc: "Aposte 5.000 AC no total", unit: "AC" },
 };
 
 // ========================================
-// CONQUISTAS
+// RECOMPENSA EM AC — escala com a dificuldade (XP), mínimo 10.000 AC
+// Credita em TODAS as carteiras: solo, coop e duel
 // ========================================
 
+const MISSION_MIN_AC = 10000;
+for (const m of Object.values(MISSIONS)) {
+    m.ac = Math.max(MISSION_MIN_AC, m.xp * 100);
+}
+
+function grantACAllWallets(userId, amount, refType, refId) {
+    for (const kind of ["solo", "coop", "duel"]) {
+        const wallet = pool.getWalletSync(userId, kind);
+        pool.adjustBalanceSync(wallet.id, amount, "daily_bonus", refType, refId);
+    }
+}
+
+// ========================================
+// CONQUISTAS — catálogo e regras em ./achievements.js
+// ========================================
 
 // ========================================
 // MISSÕES
@@ -93,7 +104,6 @@ function progressMission(userId, key, amount = 1, now = new Date()) {
         [userId, key, period]
     );
     if (!row || row.completed) return;
-
     const progress = row.progress + amount;
     const completed = progress >= m.target ? 1 : 0;
 
@@ -117,20 +127,26 @@ function trackGameActivity(userId, { game, outcome, wager, detail = {} }, now = 
     }
     add("daily_bet_500", wager || 0);
     add("weekly_bet_5000", wager || 0);
-    const gameMissions = { mines: "daily_mines_1", coinflip: "daily_coinflip_5", dice: "daily_dice_5", blackjack: "daily_blackjack_3", "blackjack-mp": "daily_blackjack_mp_3", roulette: "daily_roulette_3", slots: "daily_slots_3", crash: "daily_crash_3", plinko: "daily_plinko_3" };
-    if (Object.hasOwn(gameMissions, playedGame)) {
-        add(gameMissions[playedGame]);
-        const inserted = pool.db.run("INSERT OR IGNORE INTO mission_games (user_id, day, game) VALUES (?, ?, ?)", [userId, todayKey(now), playedGame]);
-        if (inserted.changes) add("daily_variety_3");
-    }
+    if (playedGame === "mines") add("daily_mines_1");
     if (playedGame === "coinflip") {
+        add("daily_coinflip_5");
         add("weekly_coinflip_30");
-        if (outcome === "win") add("daily_coinflip_win_2");
     }
-    if (playedGame === "blackjack-mp" && outcome === "win") add("daily_blackjack_mp_win");
+    if (playedGame === "coinflip" && outcome === "win") add("daily_coinflip_win_2");
+    if (playedGame === "dice") add("daily_dice_5");
+    if (playedGame === "blackjack") add("daily_blackjack_3");
+    if (playedGame === "roulette") add("daily_roulette_3");
+    if (playedGame === "slots") add("daily_slots_3");
+    if (playedGame === "crash") add("daily_crash_3");
+    if (playedGame === "plinko") add("daily_plinko_3");
     if (wager === 100) add("daily_bet_100_twice");
-    if (wager >= 1000) add("daily_high_bet");
+    if ((wager || 0) >= 1000) add("daily_high_bet");
+    // Jogos diferentes são deduplicados por dia (mission_games)
+    const varietyResult = pool.db.run("INSERT OR IGNORE INTO mission_games (user_id, day, game) VALUES (?, ?, ?)", [userId, todayKey(now), playedGame]);
+    if (varietyResult.changes) add("daily_variety_3");
     if (mode === "coop") add("daily_coop_3");
+    if (playedGame === "blackjack-mp") add("daily_blackjack_mp_3");
+    if (playedGame === "blackjack-mp" && outcome === "win") add("daily_blackjack_mp_win");
     if (mode === "duel") add("daily_duel_3");
 }
 
@@ -165,12 +181,10 @@ const router = express.Router();
 
 // GET /api/progression/achievements
 router.get("/achievements", authenticate, (req, res) => {
-    checkProfileAchievements(req.user.id);
-    const unlocked = pool.db.all(
-        "SELECT achievement_key, unlocked_at FROM user_achievements WHERE user_id = ?",
-        [req.user.id]
+    const map = Object.fromEntries(
+        pool.db.all("SELECT achievement_key, unlocked_at FROM user_achievements WHERE user_id = ?", [req.user.id])
+            .map((a) => [a.achievement_key, a.unlocked_at])
     );
-    const map = Object.fromEntries(unlocked.map((r) => [r.achievement_key, r.unlocked_at]));
     res.json({
         status: "success",
         achievements: Object.entries(ACHIEVEMENTS).map(([key, meta]) => ({
@@ -206,7 +220,7 @@ router.get("/missions", authenticate, (req, res) => {
 router.post("/missions/claim", authenticate, (req, res) => {
     try {
         const reward = claimMission(req.user.id, String(req.body?.missionKey || ""), new Date(), req.body?.period);
-        res.json({ status: "success", message: `+${reward.xp} XP!`, ...reward });
+        res.json({ status: "success", message: `+${reward.xp} XP e +${reward.ac.toLocaleString("pt-BR")} AC em todas as carteiras!`, ...reward });
     } catch (error) {
         if (!error.status) throw error;
         res.status(error.status).json({ status: "error", message: error.message });
@@ -221,7 +235,8 @@ function claimMission(userId, key, now = new Date(), expectedPeriod) {
     return pool.transactionSync(() => {
         const result = pool.db.run("UPDATE user_missions SET claimed = 1 WHERE user_id = ? AND mission_key = ? AND period = ? AND completed = 1 AND claimed = 0", [userId, key, period]);
         if (!result.changes) throw Object.assign(new Error("Missão incompleta, expirada ou já resgatada."), { status: 400 });
-        return { xp: m.xp, levelInfo: grantXP(userId, m.xp) };
+        grantACAllWallets(userId, m.ac, "mission", `${key}|${period}`);
+        return { xp: m.xp, ac: m.ac, levelInfo: grantXP(userId, m.xp) };
     });
 }
 
