@@ -29,6 +29,7 @@ function duel() {
     p2.call("duel:join", { code: created.code });
     p1.call("duel:ready"); p2.call("duel:ready"); p1.call("duel:ready");
     p1.call("duel:bid", { gameIdx: 6, amount: 10 });
+    duels.duels.get(created.code).auctionEndsAt = Date.now() - 1;
     assert.equal(p1.call("duel:choose", { gameIdx: 6 }).ok, true);
     const state = duels.duels.get(created.code);
     // Start a deterministic active hand without relying on random natural 21s.
@@ -63,7 +64,7 @@ function checkEffect(state, key, oldLength) {
     if (key === "mirror") assert.equal(state.mirror, true);
     if (key === "shield") assert.equal(state.shield, true);
 }
-for (const key of Object.keys(bj.SPECIAL_CARDS)) {
+for (const key of ["force_hit", "remove_last", "raise_limit_28", "lower_limit_17", "pick_card", "draw_three", "mirror", "shield"]) {
     test(`Solo consumes ${key} once and applies its effect`, () => {
         const id = user(), state = hand(); prepare(state,key);
         rounds.startRound(id,"blackjack",100,state);

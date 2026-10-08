@@ -21,6 +21,8 @@
     let lastRenderedPlayId = null;
     let activeRenderedId = null;
     let actionPending = false;
+    let introducedBattle = null;
+    let clockOffset = 0;
     let liveAnimating = false;
     const liveTimers = new Set();
     const GAME_ICON = { dice: "🎲", coinflip: "🪙", crash: "🚀", mines: "💣", roulette: "🎡", slots: "🎰", blackjack: "🃏" };
@@ -94,6 +96,7 @@
     }
 
     function render(d) {
+        clockOffset = d.serverTime - Date.now();
         $("duelLobby").classList.toggle("hidden", d.phase !== "finished");
         $("leaveDuelBtn").disabled = d.phase === "finished";
         if (d.phase !== "finished") $("duelResult").classList.add("hidden");
@@ -104,10 +107,21 @@
         const myKey = me && d.p1.userId === me.id ? "p1" : me && d.p2?.userId === me.id ? "p2" : "p1";
 
         $("p1Name").textContent = d.p1.username;
+        ArcadiaAvatar.render($("p1Avatar"), d.p1.avatar, d.p1.username);
+        if (d.p2) ArcadiaAvatar.render($("p2Avatar"), d.p2.avatar, d.p2.username);
         $("p1Balance").textContent = (d.p1.balance || 0).toLocaleString("pt-BR") + " AC";
         $("p2Name").textContent = d.p2 ? d.p2.username : "Aguardando...";
         $("p2Balance").textContent = d.p2 ? (d.p2.balance || 0).toLocaleString("pt-BR") + " AC" : "—";
-        if (d[myKey]) ArcadiaWallet.setCached(d[myKey].balance);
+        ArcadiaWallet.refresh().catch(() => {});
+        ArcadiaWallet.setBattleCapital(d[myKey]?.ready && d.phase !== "finished" ? d[myKey].balance : null);
+        $("capitalRow").classList.toggle("hidden", !["waiting", "ready"].includes(d.phase) || d[myKey]?.ready);
+        if (d.phase === "playing" && d.battleStartedAt && introducedBattle !== d.code) {
+            introducedBattle = d.code;
+            const intro = $("battleIntro");
+            if (Date.now() + clockOffset - d.battleStartedAt < 3500) {
+                ArcadiaBattle.present(intro, d.code, [d.p1, d.p2]);
+            } else intro.classList.add("hidden");
+        }
 
         $("p1Box").classList.toggle("my-turn", d.turn === "p1" && d.phase === "playing");
         $("p2Box").classList.toggle("my-turn", d.turn === "p2" && d.phase === "playing");
@@ -133,6 +147,7 @@
         $("duelTurn").textContent =
             d.phase === "waiting" ? "Aguardando oponente entrar..." :
             d.phase === "ready" ? "Ambos prontos para iniciar!" :
+            d.phase === "auction" ? "Leilao em andamento" :
             d.phase === "playing" ? (myTurn ? "🎯 Sua vez!" : `⏳ Vez de ${d[d.turn].username}`) :
             "Duelo encerrado.";
         renderLiveArena(d);
@@ -149,6 +164,13 @@
         });
         log.scrollTop = log.scrollHeight;
     }
+    setInterval(() => {
+        if (duel?.phase !== "auction") return;
+        const remaining = Math.max(0, Math.ceil((duel.auctionEndsAt - Date.now() - clockOffset) / 1000));
+        $("duelTurn").textContent = remaining ? `Leilao · ${remaining}s` : "Iniciando partida...";
+        if (remaining <= 5 && remaining > 0 && $("duelTurn").dataset.tick !== String(remaining)) Sfx.countdown?.();
+        $("duelTurn").dataset.tick = String(remaining);
+    }, 200);
 
     function iAmReady(d, myKey) {
         return d[myKey] && d[myKey].ready;
@@ -171,7 +193,7 @@
         const showReady = (d.phase === "waiting" || d.phase === "ready") && !amReady;
         readyBtn.classList.toggle("hidden", !showReady);
 
-        const showStart = isHost && d.phase === "ready" && d.p2 && d.p1.ready && d.p2.ready;
+        const showStart = false;
         if (startBtn) startBtn.classList.toggle("hidden", !showStart);
 
         const st = $("readyStatus");
@@ -215,7 +237,7 @@
                 slots.querySelectorAll(".auction-slot").forEach((x) => x.classList.remove("selected"));
                 div.classList.add("selected");
                 const choose = $("chooseBtn");
-                if (choose) choose.classList.toggle("hidden", !leading);
+                if (choose) choose.classList.add("hidden");
                 Sfx.chip();
             });
             div.querySelector(".as-bid-btn").appendChild(bidBtn);
@@ -224,12 +246,11 @@
                 slots.querySelectorAll(".auction-slot").forEach((x) => x.classList.remove("selected"));
                 div.classList.add("selected");
                 const choose = $("chooseBtn");
-                if (choose) choose.classList.toggle("hidden", !leading);
+                if (choose) choose.classList.add("hidden");
             });
             slots.appendChild(div);
         });
-        const selected=d.auction[selectedAuctionSlot];
-        $("chooseBtn")?.classList.toggle("hidden",!selected || selected.bids[myKey]<=selected.bids[oppKey]);
+        $("chooseBtn")?.classList.add("hidden");
     }
 
     // controles do leilão (com guarda — só liga se existirem no HTML)
@@ -283,6 +304,7 @@
         cashout.disabled = locked;
         if (active) cashout.textContent = "Sacar " + fmtAC(active.potentialPayout);
         const blackjack = active?.game === "blackjack";
+        if (blackjack && active.pvp) { active.canDouble = !!active.doubleAllowed?.[ownKey()]; active.nrg = active.energy?.[ownKey()] ?? 5; }
         $("duelBjActions").classList.toggle("hidden", !blackjack || !ownTurn);
         for (const id of ["duelHit", "duelStand", "duelDouble"]) $(id).disabled = locked || !ownTurn || !blackjack || (id === "duelDouble" && (!active.canDouble || duel[ownKey()].balance < active.wager * 2));
         $("duelBlackjackTrumps").classList.toggle("hidden", duel.chosenGame !== "blackjack");
@@ -312,6 +334,7 @@
                 $("duelLiveSummary").className = "duel-live-summary loss";
                 if (err && socket.connected) socket.emit("duel:sync", {});
             }
+            if (result?.card) { Sfx.cardDrop(result.card.rarity); bjTrumps.refresh(); }
             updateLiveControls();
         });
     }
@@ -520,15 +543,18 @@
 
     function paintBlackjack(play, active) {
         const stage = $("duelLiveStage");
+        const soundKey = [play.id, play.restarted || 0, play.player?.length || 0, play.dealer?.length || 0].join(":");
+        if (active && stage.dataset.bjSound !== soundKey) Sfx.card();
+        stage.dataset.bjSound = soundKey;
         if (stage.dataset.bjPlayId !== play.id || !stage.querySelector("[data-bj-hand]")) {
             stage.dataset.bjPlayId = play.id;
-            stage.innerHTML = `${liveMeta(play)}<div class="live-bj-table"><h3>Dealer <span data-bj-dealer-total></span></h3><div class="cards" data-bj-dealer></div><h3>${esc(play.username)} <span data-bj-total></span></h3><div class="cards" data-bj-hand></div></div>`;
+            stage.innerHTML = `${liveMeta(play)}<div class="live-bj-table"><h3>${esc(play.pvp || play.detail?.pvp ? play.opponentName || play.detail?.opponentName : "Dealer")} <span data-bj-dealer-total></span></h3><div class="cards" data-bj-dealer></div><h3>${esc(play.username)} <span data-bj-total></span></h3><div class="cards" data-bj-hand></div></div>`;
         }
         ArcadiaBlackjack.cards(stage.querySelector("[data-bj-hand]"), play.player || []);
         stage.querySelector("[data-live-wager]").textContent = fmtAC(play.wager);
         ArcadiaBlackjack.cards(stage.querySelector("[data-bj-dealer]"), play.dealer || []);
         stage.querySelector("[data-bj-total]").textContent = play.playerTotal;
-        stage.querySelector("[data-bj-dealer-total]").textContent = play.dealerTotal + (active ? "+?" : "");
+        stage.querySelector("[data-bj-dealer-total]").textContent = play.dealerTotal + (active && !play.pvp ? "+?" : "");
     }
 
     function animateDice(play) {
@@ -803,7 +829,7 @@
     });
 
     $("readyBtn").addEventListener("click", () => {
-        socket.emit("duel:ready", {}, (r) => { if (!r.ok) alert(r.error); });
+        socket.emit("duel:ready", { capital: Number($("duelCapital").value) }, (r) => { if (!r.ok) alert(r.error); });
     });
 
     // Iniciar: host confirma o início quando ambos estão prontos (mesmo evento ready)

@@ -94,6 +94,20 @@
         $("racePot").textContent = (r.pot || 0).toLocaleString("pt-BR") + " AC";
 
         const me = ArcadiaAPI.getUser();
+        const roster = $("racePlayers");
+        roster.replaceChildren();
+        for (const player of r.players || []) {
+            const item = document.createElement("li");
+            if (!player.online) item.className = "offline";
+            const identity = document.createElement("span"); identity.className = "player-identity";
+            const avatar = document.createElement("span"); avatar.className = "player-avatar";
+            ArcadiaAvatar.render(avatar, player.avatar, player.displayName || player.username);
+            const name = document.createElement("span"); name.textContent = (player.displayName || player.username) + (player.id === me?.id ? " (você)" : "");
+            identity.append(avatar, name);
+            const stake = document.createElement("span"); stake.className = "player-stake"; stake.textContent = ArcadiaWallet.format(player.stake);
+            item.append(identity, stake); roster.append(item);
+        }
+        if (r.phase === "racing" && r.serverTime - r.startedAt < 3500) ArcadiaBattle.present($("raceBattleIntro"), r.code + ":" + r.round, (r.players || []).filter((player) => player.stake > 0));
         const isHost = me && r.hostId === me.id;
         $("startRaceBtn").classList.toggle("hidden", !(isHost && r.phase === "betting"));
         $("betRow").classList.toggle("hidden", r.phase !== "betting");

@@ -181,6 +181,7 @@ test("Duel uses both frozen clubs, protects turns and settles exactly once on au
     p1.call("duel:ready"); p2.call("duel:ready"); p1.call("duel:ready");
     const index = duels.get(created.code).auction.findIndex((slot) => slot.game === "football");
     p1.call("duel:bid", { gameIdx: index, amount: 10 });
+    duels.get(created.code).auctionEndsAt = Date.now() - 1;
     assert.equal(p1.call("duel:choose", { gameIdx: index }).ok, true);
     const duel = duels.get(created.code), before = gameBalance(a, "duel") + gameBalance(b, "duel");
     assert.equal(p1.call("duel:play", { wager: 100, choice: { picked: "away" } }).active, true);

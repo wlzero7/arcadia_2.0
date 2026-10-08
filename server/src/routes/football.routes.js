@@ -33,7 +33,7 @@ router.get("/market", handle((req) => football.market(catalog.team(req.query.hom
 router.get("/club", authenticate, handle((req) => clubs.get(req.user.id)));
 router.post("/club", authenticate, handle((req) => {
     const { duels } = require("../realtime/duels");
-    if ([...duels.values()].some((duel) => duel.phase === "playing" && Object.values(duel.players).some((player) => player?.userId === req.user.id))) {
+    if ([...duels.values()].some((duel) => duel.phase !== "finished" && Object.values(duel.players).some((player) => player?.userId === req.user.id && (player.ready || duel.phase === "playing")))) {
         throw new Error("Elenco bloqueado durante a partida de Duelo.");
     }
     return clubs.save(req.user.id, req.body);

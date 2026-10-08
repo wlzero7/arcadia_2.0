@@ -72,7 +72,7 @@ export function create(stage) {
     const ball = mesh(new THREE.SphereGeometry(.65,12,8),white,0,.7);
     const seam = mesh(new THREE.OctahedronGeometry(.66),dark,0,0,0,ball); seam.scale.set(.7,.7,.7);
     let players=[], teamsKey="", match=null, received=performance.now(), serverElapsed=0, frame=0, disposed=false, yaw=0, zoom=1;
-    let selection=null, lastEventKey="", lastPaint="";
+    let selection=null, lastEventKey="", lastPaint="", observedMatch=null, lastFinalWhistle=null;
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
     function jersey(player, color) {
         const image = document.createElement("canvas"); image.width=256; image.height=256;
@@ -152,12 +152,20 @@ export function create(stage) {
         if(disposed)return;
         match=play;received=performance.now();
         serverElapsed=play.ended?play.durationMs:Math.max(0,serverTime-play.startedAt);
+        if (!play.ended && observedMatch!==play.id) {
+            observedMatch=play.id;
+            if(serverElapsed<1200 && typeof Sfx!=="undefined") Sfx.whistle();
+        }
         rebuild(play.home,play.away);paint();
     }
     function preview(home,away){if(disposed)return;match=null;serverElapsed=0;rebuild(home,away);score.textContent="0 : 0";clock.textContent="Pre-jogo";ticker.textContent="ARCADIA ARENA";}
     function paint(){
         if(!match)return;
         const elapsed=Math.min(match.durationMs,serverElapsed+(match.ended?0:performance.now()-received));
+        if(elapsed>=match.durationMs && observedMatch===match.id && lastFinalWhistle!==match.id) {
+            lastFinalWhistle=match.id;
+            if(typeof Sfx!=="undefined") Sfx.whistle();
+        }
         const available=match.events||[];
         const event=available.findLast(e=>e.at<=elapsed);
         // Never infer an unseen goal from a shot: only the server's goal events change the score.
@@ -166,7 +174,13 @@ export function create(stage) {
         score.textContent=goals.join(" : ");
         clock.textContent=match.ended?"Encerrado":Math.min(90,Math.floor(elapsed/match.durationMs*90))+"'";
         const key=match.id+":"+(event?.at??-1);
-        if(key!==lastEventKey){lastEventKey=key;lastPaint=event?({pass:"Passe",shot:"Chute",goal:"GOL",save:"Defesa"}[event.type])+" · "+event.player+" #"+event.number:"Bola em jogo";}
+        if(key!==lastEventKey){
+            lastEventKey=key;lastPaint=event?({pass:"Passe",shot:"Chute",goal:"GOL",save:"Defesa"}[event.type])+" · "+event.player+" #"+event.number:"Bola em jogo";
+            if(event && !match.ended && elapsed-event.at<1200 && typeof Sfx!=="undefined") {
+                if(event.type==="goal") Sfx.footballGoal();
+                else if(event.type==="pass" || event.type==="shot" || event.type==="save") Sfx.footballKick(event.type==="shot");
+            }
+        }
         ticker.textContent=selection?selection.player.name+" · #"+selection.player.number+" · "+selection.player.position+" · "+selection.player.rating+" OVR":lastPaint;
         const t=elapsed/1000;
         for(const p of players){

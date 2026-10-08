@@ -21,6 +21,8 @@ function progress(race, horse) {
 }
 function raceState(race) {
     return { code: race.code, hostId: race.hostId, phase: race.phase, round: race.round, pot: race.pot,
+        startedAt: race.startedAt || null, serverTime: Date.now(),
+        players: [...race.members].map(([id, member]) => ({ id, username: member.username, displayName: member.displayName || member.username, avatar: member.avatar, stake: race.bets.get(id)?.amount || 0, online: member.socketIds.size > 0 })),
         horses: race.horses.map((h) => ({ ...h, progress: progress(race, h) })), odds: odds(race),
         bets: [...race.bets].map(([userId, b]) => ({ userId, ...b })) };
 }
@@ -84,6 +86,8 @@ function setupRacing(io) {
                 socket.leave("race:" + prior.code);
             }
             if (!race.members.has(socket.userId)) race.members.set(socket.userId, { username: socket.username, socketIds: new Set() });
+            const identity = require("../services/avatars").identity(socket.userId);
+            Object.assign(race.members.get(socket.userId), { avatar: identity.avatar, displayName: identity.displayName });
             race.members.get(socket.userId).socketIds.add(socket.id);
             if (!race.members.get(race.hostId)?.socketIds.size) race.hostId = socket.userId;
             socket.data.raceCode = race.code; socket.join("race:" + race.code);

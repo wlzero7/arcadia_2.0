@@ -72,13 +72,14 @@ function tableState(t) {
         phase: t.phase,
         limit: t.limit,
         round: t.round,
+        startedAt: t.startedAt || null, serverTime: Date.now(),
         pot: t.pot || 0,
         results: t.phase === "finished" ? t.results || [] : [],
         players: [...t.players.entries()].map(([id, p]) => ({
             id,
             username: p.username,
             hand: p.hand,
-            total: handValue(p.hand, t.limit),
+            total: bj.total(p.hand, t.limit, p.factor || 1),
             stood: p.stood,
             busted: p.busted,
             nrg: p.nrg,
@@ -88,6 +89,8 @@ function tableState(t) {
             allWin: p.pendingBet?.allWin || false,
             online: p.socketIds.size > 0,
             isTurn: t.order[t.turnIdx] === id && t.phase === "playing",
+            avatar: p.avatar,
+            canDouble: t.phase === "playing" && p.hand.length === 2 && !p.hits && !p.doubled && !p.stood,
         })),
     };
 }
@@ -103,10 +106,10 @@ function draw(t) {
     return t.deck.pop();
 }
 
-// Tenta compra de carta especial (30% ao comprar do monte)
+// One independent 50% roll per accepted hit, stand or double.
 function maybeSpecial(t, player, io, code) {
     const uid = [...t.players].find(([,p]) => p === player)[0];
-    const card = bj.drop(uid);
+    const card = bj.actionDrop(uid);
     if (card) {
         const key = card.key;
         player.specials.push(key);
@@ -144,25 +147,44 @@ function finishRound(t, io, code) {
     let best = null;
     for (const id of t.order) {
         const p = t.players.get(id);
-        const total = handValue(p.hand, t.limit);
-        if (total <= t.limit && (!best || total > handValue(best.hand, t.limit))) best = p;
+        const total = bj.total(p.hand, t.limit, p.factor || 1);
+        if (total <= t.limit && (!best || total > bj.total(best.hand, t.limit, best.factor || 1))) best = p;
     }
     const results = t.order.map((id) => {
         const p = t.players.get(id);
         return {
             id,
             username: p.username,
-            total: handValue(p.hand, t.limit),
+            total: bj.total(p.hand, t.limit, p.factor || 1),
             busted: p.busted,
-            won: !!best && !p.busted && handValue(p.hand, t.limit) === handValue(best.hand, t.limit),
+            won: !!best && bj.total(p.hand, t.limit, p.factor || 1) <= t.limit && bj.total(p.hand, t.limit, p.factor || 1) === bj.total(best.hand, t.limit, best.factor || 1),
         };
     });
+
+    if (results.some((r) => !r.won && t.players.get(r.id).recovery)) {
+        t.phase = "playing"; t.limit = 21; t.deck = newDeck(); t.discard = [];
+        t.restarts = (t.restarts || 0) + 1;
+        for (const id of t.order) {
+            const p = t.players.get(id);
+            Object.assign(p, { hand: [t.deck.pop(), t.deck.pop()], stood: !present(p), busted: false,
+                recovery: false, profitDouble: false, doubled: false, factor: 1, hits: 0, nrg: 5,
+                shield: false, lastAttack: null, lastDrawn: null });
+        }
+        t.turnIdx = Math.max(0, t.order.findIndex((id) => present(t.players.get(id))));
+        io.to(`bj:${code}`).emit("bj:chat", { system: true, message: "Recuperacao: mesma rodada reiniciada, saldos inalterados.", at: Date.now() });
+        if (!t.order.some((id) => present(t.players.get(id)))) { finishRound(t, io, code); return; }
+        broadcastTable(t, io); return;
+    }
 
     try {
         pool.transactionSync(() => {
             // Solo practice at an empty table does not advance multiplayer missions.
             const winners = results.filter((r) => r.won);
             const shares = allocateShares(new Map((winners.length ? winners : results).map((r) => [r.id, winners.length ? 1 : t.players.get(r.id).wager || 1])), t.pot || 0);
+            for (const r of winners) {
+                const p = t.players.get(r.id), payout = shares.get(r.id) || 0;
+                if (p.profitDouble && payout > p.wager) shares.set(r.id, payout + payout - p.wager);
+            }
             const settlements = [];
             if (t.order.length >= 2) pool.adjustWalletsSync(results.filter((result) => shares.get(result.id) > 0).map((result) => ({ userId: result.id, walletKind: "coop", delta: shares.get(result.id), kind: "payout", refType: "blackjack", refId: code })));
             if (t.order.length >= 2) for (const result of results) {
@@ -171,14 +193,14 @@ function finishRound(t, io, code) {
                 result.payout = payout;
                 const outcome = amount ? payout > amount ? "win" : payout === amount ? "push" : "loss" : result.won ? "win" : "loss";
                 result.wager = amount; result.outcome = outcome;
-                settlements.push({ userId: result.id, game: "blackjack-mp", amount, payout, outcome, detail: { tableCode: code, player: player.hand, playerTotal: result.total, hits: player.hits ?? Math.max(0, player.hand.length - 2), allWin: player.allWin === true } });
+                settlements.push({ userId: result.id, game: "blackjack-mp", amount, payout, outcome, detail: { tableCode: code, player: player.hand, playerTotal: result.total, hits: player.hits ?? Math.max(0, player.hand.length - 2), allWin: player.allWin === true, profitDouble: !!player.profitDouble } });
             }
             recordBets(settlements);
             t.pot = 0;
             t.results = results;
             store.save("blackjack", t);
         });
-    } catch (error) { Object.assign(t, before); throw error; }
+    } catch (error) { store.restore(t, before); throw error; }
 
     io.to(`bj:${code}`).emit("bj:round_end", {
         winner: best ? { id: results.find((r) => r.username === best.username)?.id, username: best.username } : null,
@@ -204,6 +226,7 @@ function dealRound(t, restoreEnergy = false) {
     t.pot = 0;
     t.results = null;
     t.round++;
+    t.startedAt = Date.now();
     t.limit = 21;
     t.deck = newDeck();
     t.discard = [];
@@ -229,6 +252,7 @@ function dealRound(t, restoreEnergy = false) {
         p.lastDrawn = null;
         p.lastAttack = null;
         p.hits = 0;
+        p.factor = 1; p.doubled = false; p.recovery = false; p.profitDouble = false;
         if (online && (restoreEnergy || t.round > 1)) p.nrg = Math.min(p.nrg + 2, 10);
         if (online) t.order.push(id);
     }
@@ -243,7 +267,7 @@ function broadcastTable(t, io) {
     store.save("blackjack", t);
     io.to("bj:" + t.code).emit("bj:state", tableState(t));
     for (const p of t.players.values()) for (const socketId of p.socketIds) {
-        io.to(socketId).emit("bj:specials", { cards: p.specials });
+        io.to(socketId).emit("bj:specials", { cards: p.specials, catalog: SPECIAL_CARDS });
     }
 }
 function setupBlackjackMultiplayer(realIO) {
@@ -274,7 +298,7 @@ function setupBlackjackMultiplayer(realIO) {
                 const events = pendingEvents; pendingEvents = null;
                 for (const message of events) realIO.to(message.channel).emit(message.event, message.data);
             } catch (error) {
-                Object.assign(active, before);
+                store.restore(active, before);
                 console.error("Blackjack reconnection:", error.message);
                 reconnectTimers.set(timerKey, setTimeout(expire, 5000).unref());
             } finally { pendingEvents = null; }
@@ -309,8 +333,8 @@ function setupBlackjackMultiplayer(realIO) {
                     for (const message of events) realIO.to(message.channel).emit(message.event, message.data);
                     if (typeof cb === "function") cb(response || { ok: true });
                 } catch (err) {
-                    if (t && before) Object.assign(t, before);
-                    if (targetBefore) Object.assign(target, targetBefore);
+                    if (t && before) store.restore(t, before);
+                    if (targetBefore) store.restore(target, targetBefore);
                     if (priorCodes) for (const key of tables.keys()) if (!priorCodes.has(key)) tables.delete(key);
                     socket.data.tableCode = priorCode;
                     if (typeof cb === "function") cb({ ok: false, error: err.message });
@@ -361,6 +385,7 @@ function setupBlackjackMultiplayer(realIO) {
                 t.order.push(socket.userId);
             }
             const joining = t.players.get(socket.userId);
+            joining.avatar = require("../services/avatars").identity(socket.userId).avatar;
             if (!joining.inventoryMigrated) {
                 for (const key of joining.specials || []) if (Object.hasOwn(SPECIAL_CARDS, key)) bj.addCard(socket.userId, key);
                 joining.inventoryMigrated = true;
@@ -415,7 +440,7 @@ function setupBlackjackMultiplayer(realIO) {
             // chance de carta especial
             maybeSpecial(t, p, io, t.code);
 
-            const total = handValue(p.hand, t.limit);
+            const total = bj.total(p.hand, t.limit, p.factor || 1);
             if (total > t.limit) {
                 p.busted = true;
                 io.to(`bj:${t.code}`).emit("bj:chat", { system: true, message: `💥 ${p.username} estourou com ${total} (limite ${t.limit}).`, at: Date.now() });
@@ -432,9 +457,26 @@ function setupBlackjackMultiplayer(realIO) {
 
             const p = t.players.get(socket.userId);
             p.stood = true;
+            maybeSpecial(t, p, io, t.code);
             io.to(`bj:${t.code}`).emit("bj:chat", { system: true, message: `✋ ${p.username} parou em ${handValue(p.hand, t.limit)}.`, at: Date.now() });
             nextTurn(t, io, t.code);
             cb && cb({ ok: true });
+        });
+
+        on("bj:double", (_, cb) => {
+            const t = tables.get(socket.data.tableCode), p = t?.players.get(socket.userId);
+            if (!p || t.phase !== "playing" || t.order[t.turnIdx] !== socket.userId) throw new Error("Nao e sua vez.");
+            if (p.hand.length !== 2 || p.hits || p.doubled || p.stood) throw new Error("Dobrar so com as duas cartas iniciais.");
+            if (p.wager) {
+                const wallet = pool.getWalletSync(socket.userId, "coop");
+                pool.adjustBalanceSync(wallet.id, -p.wager, "bet", "blackjack", t.code);
+                p.allWin ||= wallet.balance === p.wager;
+                t.pot += p.wager; p.wager *= 2;
+                if (!Number.isSafeInteger(t.pot) || !Number.isSafeInteger(p.wager)) throw new Error("Saldo fora do limite permitido.");
+            }
+            p.doubled = true; p.hits = 1; p.hand.push(draw(t)); p.stood = true;
+            p.busted = bj.total(p.hand, t.limit, p.factor || 1) > t.limit;
+            maybeSpecial(t, p, io, t.code); nextTurn(t, io, t.code); cb({ ok: true });
         });
 
         // ---------- CARTAS ESPECIAIS ----------
@@ -454,10 +496,31 @@ function setupBlackjackMultiplayer(realIO) {
             if (me.nrg < meta.nrg) return cb && cb({ ok: false, error: `NRG insuficiente (${meta.nrg}).` });
 
             // alvo padrão: próximo jogador
-            const targeted = ["force_hit", "remove_last", "mirror"].includes(key);
+            const targeted = ["force_hit", "remove_last", "mirror", "loving", "double_opponent"].includes(key);
             const finalTargetId = key === "mirror" ? me.lastAttack?.from : targetId || t.order[(t.turnIdx + 1) % t.order.length];
             const target = targeted ? t.players.get(finalTargetId) : me;
             if (!target || (targeted && (finalTargetId === socket.userId || !t.order.includes(finalTargetId)))) return cb && cb({ ok: false, error: "Alvo inválido." });
+            const newEffect = key === "mirror" ? me.lastAttack?.key : key;
+            if (["renew", "perfect_play", "loving", "double_opponent", "recovery", "profit_double", "plus_one"].includes(newEffect)) {
+                const view = { deck: t.deck, player: me.hand, dealer: target.hand, limit: t.limit, nrg: me.nrg,
+                    hits: me.hits, playerFactor: me.factor || 1, dealerFactor: target.factor || 1,
+                    recovery: me.recovery, profitDouble: me.profitDouble, pvp: true, lastAttack: me.lastAttack };
+                if (targeted && key !== "mirror") target.lastAttack = { key, from: socket.userId };
+                if (targeted && target.shield) {
+                    bj.consume(socket.userId, key); me.nrg -= meta.nrg; target.shield = false;
+                } else {
+                    bj.useSpecial(socket.userId, view, data);
+                    t.deck = view.deck; me.hand = view.player;
+                    me.nrg = view.nrg; me.hits = view.hits; me.factor = view.playerFactor;
+                    if (key === "mirror") me.lastAttack = null;
+                    if (targeted) { target.hand = view.dealer; target.factor = view.dealerFactor; }
+                    me.recovery = view.recovery; me.profitDouble = view.profitDouble;
+                }
+                for (const p of t.players.values()) p.busted = bj.total(p.hand, t.limit, p.factor || 1) > t.limit;
+                io.to(`bj:${t.code}`).emit("bj:chat", { system: true, message: me.username + " usou " + meta.name + ".", at: Date.now() });
+                if (me.busted || me.stood) nextTurn(t, io, t.code); else broadcastTable(t, io);
+                cb({ ok: true }); return;
+            }
             if (key === "mirror" && !me.lastAttack) return cb && cb({ ok: false, error: "Nenhuma carta para refletir." });
             const effect = key === "mirror" ? me.lastAttack.key : key;
             if (effect === "remove_last" && target.hand.length <= 2) return cb && cb({ ok: false, error: "Nenhuma carta extra para remover." });
@@ -546,7 +609,7 @@ function setupBlackjackMultiplayer(realIO) {
 
             // busts por limite alterado
             for (const p of t.players.values()) {
-                p.busted = handValue(p.hand, t.limit) > t.limit;
+                p.busted = bj.total(p.hand, t.limit, p.factor || 1) > t.limit;
             }
 
             const currentPlayer = t.players.get(t.order[t.turnIdx]);

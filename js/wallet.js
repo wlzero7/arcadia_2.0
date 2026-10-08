@@ -2,6 +2,14 @@ const ArcadiaWallet = (() => {
     const kind = /\/(rooms|racing|blackjack-mp)\.html$/.test(location.pathname) ? "coop" : /\/duel\.html$/.test(location.pathname) || (location.pathname.endsWith("/football.html") && new URLSearchParams(location.search).get("mode") === "duel") ? "duel" : "solo";
     const allWin = new Set();
     let poolBalance = 0;
+    let battleCapital = null;
+    function setBattleCapital(value) {
+        battleCapital = Number.isSafeInteger(value) && value >= 0 ? value : null;
+        const input = document.getElementById("wager");
+        if (input && battleCapital !== null && isAllWin()) input.value = battleCapital;
+        const button = input?.nextElementSibling;
+        if (button?.classList.contains("all-win-button")) button.title = battleCapital !== null ? "Apostar todo o capital da batalha" : "Apostar todo o saldo da carteira";
+    }
     function setPoolBalance(value) {
         poolBalance = value;
         const input = document.getElementById("mpBet");
@@ -24,10 +32,10 @@ const ArcadiaWallet = (() => {
             button.type = "button"; button.className = "btn btn-outline all-win-button"; button.textContent = "All Win";
             button.setAttribute("aria-pressed", "false");
             button.disabled = input.disabled;
-            button.title = id === "mpBet" ? "Apostar todo o pote compartilhado" : "Apostar todo o saldo da carteira";
+            button.title = id === "mpBet" ? "Apostar todo o pote compartilhado" : id === "wager" && battleCapital !== null ? "Apostar todo o capital da batalha" : "Apostar todo o saldo da carteira";
             button.addEventListener("click", () => {
                 const selected = !allWin.has(key);
-                if (selected) { allWin.add(key); input.removeAttribute("max"); input.min = "1"; input.value = id === "mpBet" ? poolBalance : getCached(); }
+                if (selected) { allWin.add(key); input.removeAttribute("max"); input.min = "1"; input.value = id === "mpBet" ? poolBalance : id === "wager" && battleCapital !== null ? battleCapital : getCached(); }
                 else allWin.delete(key);
                 button.setAttribute("aria-pressed", String(selected));
                 input.dispatchEvent(new Event("change", { bubbles: true }));
@@ -80,6 +88,6 @@ const ArcadiaWallet = (() => {
         refresh(); installAllWin();
         new MutationObserver(installAllWin).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled"] });
     });
-    return { format, getCached, setCached, refresh, daily, kind, isAllWin, setPoolBalance };
+    return { format, getCached, setCached, refresh, daily, kind, isAllWin, setPoolBalance, setBattleCapital };
 })();
 window.ArcadiaWallet = ArcadiaWallet;

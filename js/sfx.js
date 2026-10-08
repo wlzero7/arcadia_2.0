@@ -30,7 +30,7 @@ const Sfx = (() => {
             }
         }
         // browsers exigem gesto do usuário antes de tocar
-        if (ctx.state === "suspended") ctx.resume();
+        if (ctx.state === "suspended") ctx.resume().catch(() => {});
         return ctx;
     }
 
@@ -48,6 +48,7 @@ const Sfx = (() => {
 
     // tom com envelope suave (attack evita o "estalo" digital)
     function tone({ freq = 440, type = "sine", dur = 0.15, vol = 0.15, delay = 0, slide = 0, attack = 0.008, pan = 0, detune = 0 }) {
+        if (!enabled || document.hidden) return;
         const c = ac();
         if (!c || !enabled) return;
         const t0 = c.currentTime + delay;
@@ -65,10 +66,12 @@ const Sfx = (() => {
         gain.connect(p).connect(master);
         osc.start(t0);
         osc.stop(t0 + dur + 0.05);
+        osc.onended = () => { osc.disconnect(); gain.disconnect(); p.disconnect(); };
     }
 
     // ruído filtrado (explosões, cartas, whooshes)
     function noise({ dur = 0.2, vol = 0.12, delay = 0, filterFreq = 1200, filterType = "lowpass", pan = 0, slideTo = 0 }) {
+        if (!enabled || document.hidden) return;
         const c = ac();
         if (!c || !enabled) return;
         const t0 = c.currentTime + delay;
@@ -91,6 +94,7 @@ const Sfx = (() => {
         src.connect(filter).connect(gain);
         gain.connect(p).connect(master);
         src.start(t0);
+        src.onended = () => { src.disconnect(); filter.disconnect(); gain.disconnect(); p.disconnect(); };
     }
 
     // acorde rápido (várias notas quase juntas)
@@ -272,6 +276,34 @@ const Sfx = (() => {
         },
     };
 
+    const textures = {
+        dice: () => [0, .07, .16, .27].forEach(delay => noise({ dur: .055, vol: .055, delay, filterFreq: 850, pan: Math.random() * .5 - .25 })),
+        coin: () => tone({ freq: 2450, dur: .22, vol: .035, slide: -600, pan: .2 }),
+        rocket: () => noise({ dur: .8, vol: .055, filterFreq: 260, slideTo: 1600 }),
+        boom: () => noise({ dur: .45, vol: .085, filterFreq: 320, slideTo: 70 }),
+        gem: () => chord([1568, 2093, 2637], { dur: .16, vol: .025, spread: .035 }),
+        spin: () => [0, .08, .19, .34, .53, .76].forEach(delay => noise({ dur: .025, vol: .055, delay, filterFreq: 2400 })),
+        spinSlots: () => noise({ dur: .28, vol: .055, filterFreq: 800, filterType: "bandpass" }),
+        card: () => noise({ dur: .12, vol: .045, filterFreq: 4200, filterType: "highpass" }),
+        horse: () => [0, .13, .2].forEach(delay => noise({ dur: .055, vol: .06, delay, filterFreq: 460 })),
+    };
+    for (const [key, texture] of Object.entries(textures)) {
+        const original = sfx[key]; sfx[key] = (...args) => { original(...args); texture(); };
+    }
+    sfx.footballKick = (hard = false) => {
+        noise({ dur: .06, vol: hard ? .13 : .075, filterFreq: 600 });
+        tone({ freq: hard ? 105 : 155, slide: -65, dur: .1, vol: .09 });
+    };
+    sfx.footballNet = () => noise({ dur: .3, vol: .065, filterFreq: 3600, filterType: "highpass" });
+    sfx.footballGoal = () => {
+        sfx.footballNet(); noise({ dur: 1.1, vol: .095, filterFreq: 1200, filterType: "bandpass" });
+        chord([523, 659, 784, 1047], { dur: .38, vol: .075, spread: .08 });
+    };
+    sfx.whistle = () => [0, .18].forEach(delay => tone({ freq: 2650, type: "sine", dur: .13, delay, vol: .045, detune: 10 }));
+    sfx.countdown = () => tone({ freq: 880, dur: .08, vol: .075 });
+    sfx.battleStart = () => { noise({ dur: .3, vol: .06, filterFreq: 1000, slideTo: 300 }); chord([220, 330, 440], { dur: .28, vol: .075, spread: .06 }); };
+    sfx.plinkoPeg = () => tone({ freq: 950 + Math.random() * 450, dur: .045, vol: .04, pan: Math.random() * .6 - .3 });
+
     // ---------- AUTO-WIRE DE UI (v2.0) ----------
     // Efeitos globais sem tocar em nenhum outro arquivo:
     // cliques em botões/links, troca de aba, abertura do modal de sala.
@@ -331,6 +363,7 @@ const Sfx = (() => {
 
     function toggle() {
         enabled = !enabled;
+        if (master) master.gain.setTargetAtTime(enabled ? .9 : .0001, ctx.currentTime, .015);
         localStorage.setItem("arcadia_sfx", enabled ? "on" : "off");
         return enabled;
     }

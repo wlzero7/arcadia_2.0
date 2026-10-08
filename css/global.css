@@ -500,7 +500,7 @@ main > *, .game-card, .profile-card, .room-card {
         grid-template-columns: 1fr !important;
     }
 
-    .bj-table, .rl-table, .race-track-wrap, .duel-arena, .bjmp-arena {
+    .bj-table, .rl-table, .race-track-wrap:not(.multiplayer-arena) {
         padding: .9rem !important;
         border-width: 5px !important;
     }
@@ -510,7 +510,6 @@ main > *, .game-card, .profile-card, .room-card {
     .cards { min-height: 74px; }
 
     .rl-numbers { grid-template-columns: repeat(9, 1fr) !important; }
-    .rlm-nums { grid-template-columns: repeat(10, 1fr) !important; }
 
     .pot-actions { flex-wrap: wrap; }
     .pot-value { font-size: 1.9rem !important; }
@@ -548,3 +547,15 @@ main > *, .game-card, .profile-card, .room-card {
 }
 :root .all-win-button { border-radius: 6px; white-space: nowrap; min-height: 40px; flex-shrink: 0; }
 :root .all-win-button[aria-pressed="true"] { background: #235a3f; color: #fff; border-color: #66cd97; }
+/* Multiplayer round introduction, kept in normal document flow. */
+.battle-lineup { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-top: 10px; }
+.battle-person { display: flex; min-width: 0; align-items: center; gap: 8px; }
+.battle-person > div { min-width: 0; }
+.battle-person span, .battle-person small { display: block; overflow-wrap: anywhere; }
+.battle-person small { color: var(--text-secondary); }
+.battle-avatar { display: inline-flex; flex: 0 0 32px; width: 32px; height: 32px; align-items: center; justify-content: center; font-size: 22px; vertical-align: middle; margin-right: 6px; }
+.battle-avatar img { width: 32px; height: 32px; object-fit: cover; border-radius: 6px; }
+.battle-intro { padding: 12px 0; border-block: 1px solid var(--border); margin-bottom: 12px; }
+.battle-entering { animation: multiplayer-enter .35s ease-out; }
+@keyframes multiplayer-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .battle-entering { animation: none; } }

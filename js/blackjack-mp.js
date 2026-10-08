@@ -46,15 +46,25 @@
 
             socket.on("bj:state", (t) => {
                 sessionStorage.setItem("arcadia_bj", t.code);
-                table = t;
                 render(t);
             });
 
             socket.on("bj:specials", (data) => {
+                for (const [key, meta] of Object.entries(data.catalog || {})) {
+                    CARD_META[key] = { ...(CARD_META[key] || { icon: "\u{1F3B4}" }), label: meta.name };
+                    NRG_COST[key] = meta.nrg;
+                    RARITY[key] = ({ comum: "comum", rara: "raro", super_rara: "super-raro", epica: "épico", lendaria: "lendária", cromatica: "cromática" })[meta.rarity];
+                }
                 mySpecials = data.cards;
                 renderSpecials();
             });
-            socket.on("bj:round_end", () => { ArcadiaWallet.refresh(); Sfx.card(); });
+            socket.on("bj:round_end", ({ results }) => {
+                ArcadiaWallet.refresh();
+                const result = results.find((r) => r.id === ArcadiaAPI.getUser()?.id);
+                if (result?.outcome === "win") Sfx.win();
+                else if (result?.outcome === "loss") Sfx.lose();
+                else Sfx.push();
+            });
             socket.on("bj:chat", (m) => {
                 if (m.system && m.message && m.message.includes("especial")) Sfx.cardSpecial();
                 const log = $("bjLog");
@@ -74,10 +84,15 @@
     }
 
     function render(t) {
+        if (t.phase === "playing" && t.players.some((p) => p.hand.length > (table?.players.find((old) => old.id === p.id)?.hand.length || 0)) && table?.phase === "playing") Sfx.card();
+        table = t;
         $("bjmpLobby").classList.add("hidden");
         $("bjmpArena").classList.remove("hidden");
         $("tableCode").textContent = t.code;
         $("tableLimit").textContent = t.limit;
+        let intro = $("bjBattleIntro");
+        if (!intro) { intro = document.createElement("div"); intro.id = "bjBattleIntro"; intro.className = "battle-intro hidden"; $("playersRow").before(intro); }
+        if (t.phase === "playing" && t.serverTime - t.startedAt < 3500) ArcadiaBattle.present(intro, t.code + ":" + t.round, t.players.filter((p) => p.hand.length));
 
         const me = ArcadiaAPI.getUser();
         const mePlayer = t.players.find((p) => p.id === (me || {}).id);
@@ -100,7 +115,7 @@
             const div = document.createElement("div");
             div.className = "bj-player" + (p.isTurn ? " my-turn" : "") + (p.busted ? " busted" : "");
             div.innerHTML = `
-                <div class="bj-name"><span>${ArcadiaAPI.escapeHtml(p.username)}${p.id === (me || {}).id ? " (você)" : ""}</span><span class="bj-total">${p.total}${t.phase === "playing" ? "?" : ""}</span></div>
+                <div class="bj-name"><span>${ArcadiaAPI.escapeHtml(p.username)}${p.id === (me || {}).id ? " (você)" : ""}</span><span class="bj-total">${p.total}</span></div>
                 <div class="bj-cards">${p.hand.map(cardHtml).join("")}</div>
                 <div class="bj-nrg">⚡ ${p.nrg} NRG · 🎴 ${p.specials}</div>
                 <div class="bj-nrg">${ArcadiaWallet.format(t.phase === "playing" ? p.wager : p.pendingWager)}</div>
@@ -108,11 +123,14 @@
                 ${p.busted ? '<div class="bj-stand" style="color:#fca5a5">💥 estourou</div>' : ""}
             `;
             row.appendChild(div);
+            const avatar = document.createElement("span"); avatar.className = "battle-avatar";
+            ArcadiaAvatar.render(avatar, p.avatar, p.username); div.querySelector(".bj-name > span").prepend(avatar);
         });
 
         // ações
         const myTurn = mePlayer && mePlayer.isTurn;
         $("actionsRow").classList.toggle("hidden", !myTurn);
+        $("doubleBtn").disabled = !myTurn || !mePlayer.canDouble;
         if (mePlayer) {
             $("nrgValue").textContent = mePlayer.nrg;
             $("specialsCount").textContent = mePlayer.specials;
@@ -161,7 +179,7 @@
             sel.appendChild(opt);
         });
 
-        sel.closest("label").classList.toggle("hidden", !["force_hit", "remove_last"].includes(key));
+        sel.closest("label").classList.toggle("hidden", !["force_hit", "remove_last", "loving", "double_opponent"].includes(key));
         $("pickCardControls").classList.toggle("hidden", key !== "pick_card");
         panel.querySelectorAll("button").forEach((button) => button.remove());
 
@@ -220,6 +238,9 @@
 
     $("standBtn").addEventListener("click", () => {
         socket.emit("bj:stand", {}, (r) => { if (!r.ok) alert(r.error); });
+    });
+    $("doubleBtn").addEventListener("click", () => {
+        socket.emit("bj:double", {}, (r) => { if (!r.ok) alert(r.error); });
     });
 
     $("specialsBtn").addEventListener("click", () => {

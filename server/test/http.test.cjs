@@ -7,7 +7,7 @@ const { spawn } = require("node:child_process");
 const { once } = require("node:events");
 test("real HTTP authentication, static file isolation, and game smoke tests", { skip: process.env.ARCADIA_OFFLINE_TEST === "1" }, async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-http-"));
-    const child = spawn(process.execPath, ["src/server.js"], { cwd: path.resolve(__dirname, ".."), env: { ...process.env, PORT: "0", DB_PATH: path.join(directory, "test.db"), NODE_ENV: "test", JWT_SECRET: "integration-test-only-secret", TURSO_DATABASE_URL: "", TURSO_AUTH_TOKEN: "", REQUIRE_PERSISTENT_DB: "" }, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(process.execPath, ["src/server.js"], { cwd: path.resolve(__dirname, ".."), env: { ...process.env, PORT: "0", DB_PATH: path.join(directory, "test.db"), NODE_ENV: "test", JWT_SECRET: "integration-test-only-secret", TURSO_DATABASE_URL: "", TURSO_AUTH_TOKEN: "", REQUIRE_PERSISTENT_DB: "", RENDER_GIT_COMMIT: "a".repeat(40) }, stdio: ["ignore", "pipe", "pipe"] });
     let logs = "";
     child.stderr.on("data", (data) => { logs += data; });
     let socket;
@@ -30,6 +30,8 @@ test("real HTTP authentication, static file isolation, and game smoke tests", { 
         assert.equal((await request("/server/data/arcadia.db", null, null, "GET")).status, 404);
         assert.equal((await request("/server/src/config/database.js", null, null, "GET")).status, 404);
         assert.equal((await request("/api/health", null, null, "GET", { Origin: "https://evil.example" })).status, 403);
+        const health = await request("/api/health", null, null, "GET");
+        assert.equal(health.data.release, "a".repeat(40)); assert.equal(health.headers.get("cache-control"), "no-store");
         const registration = await request("/api/auth/register", { username: "tester", email: "tester@example.test", password: "Testing123!" });
         assert.equal(registration.status, 201, JSON.stringify(registration.data));
         assert.match(registration.cookie, /HttpOnly/i); assert.equal(registration.data.token, undefined);

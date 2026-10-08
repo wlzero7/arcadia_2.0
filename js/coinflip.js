@@ -17,6 +17,7 @@
         const userId = ArcadiaAPI.getUser().id;
         busy = true; lock(true); message("Lan\u00e7ando moeda...");
         $("coinFace").classList.add("flipping");
+        Sfx.coin();
         try {
             const result = await ArcadiaAPI.play("coinflip", wager, { side });
             await new Promise((resolve) => setTimeout(resolve, 650));

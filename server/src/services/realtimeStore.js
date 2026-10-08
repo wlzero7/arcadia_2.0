@@ -22,4 +22,8 @@ function load(mode) {
 function save(mode, state) {
     pool.db.run("INSERT INTO realtime_sessions (mode, code, state) VALUES (?, ?, ?) ON CONFLICT(mode, code) DO UPDATE SET state = excluded.state", [mode, state.code, encode(state)]);
 }
-module.exports = { load, save, decode };
+function restore(target, snapshot) {
+    for (const key of Object.keys(target)) if (!Object.hasOwn(snapshot, key)) delete target[key];
+    Object.assign(target, snapshot);
+}
+module.exports = { load, save, decode, restore };

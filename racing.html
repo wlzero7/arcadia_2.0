@@ -7,6 +7,7 @@
     <title>Corrida de Cavalos — Arcadia</title>
     <link rel="stylesheet" href="css/global.css">
     <link rel="stylesheet" href="css/racing.css">
+    <link rel="stylesheet" href="css/multiplayer-arena.css">
 </head>
 <body>
     <header class="header">
@@ -41,13 +42,15 @@
             </div>
         </div>
 
-        <section class="race-track-wrap hidden" id="raceWrap">
+        <section class="race-track-wrap multiplayer-arena hidden" id="raceWrap">
             <div class="race-header">
                 <span>Código: <strong class="accent" id="raceCode">—</strong></span>
                 <span>💰 Pote: <strong id="racePot">0 AC</strong></span>
                 <button class="btn btn-primary hidden" id="startRaceBtn">🏁 Largar!</button>
             </div>
 
+            <ul id="racePlayers" class="players-list race-roster" aria-label="Jogadores da corrida"></ul>
+            <div id="raceBattleIntro" class="battle-intro hidden" role="status"></div>
             <div class="race-track" id="raceTrack"></div>
 
             <div class="race-bets">
@@ -68,6 +71,7 @@
     <script src="js/api.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="js/wallet.js"></script>
+    <script src="js/battle-presentation.js"></script>
     <script src="js/racing.js"></script>
 </body>
 </html>

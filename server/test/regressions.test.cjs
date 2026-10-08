@@ -200,6 +200,7 @@ test("duel Coin Flip enforces turns, preserves balances and tracks both players"
     const p1 = io.connect(a), p2 = io.connect(b), duel = p1.callWithoutData("duel:create").duel;
     p2.call("duel:join", { code: duel.code }); p1.callWithoutData("duel:ready"); p2.callWithoutData("duel:ready"); p1.callWithoutData("duel:ready");
     assert.equal(p1.call("duel:bid", { gameIdx: 1, amount: 10 }).ok, true);
+    require("../src/realtime/duels").duels.get(duel.code).auctionEndsAt = Date.now() - 1;
     assert.equal(p1.call("duel:choose", { gameIdx: 1 }).ok, true);
     const sum = balance(a, "duel") + balance(b, "duel");
     assert.equal(p2.call("duel:play", { game: "coinflip", wager: 100, choice: { side: "tails" } }).ok, false);
@@ -345,6 +346,7 @@ test("duel requires ready players, locks selected mode and conserves credits", (
     const duel = p1.call("duel:create").duel;
     p2.call("duel:join", { code: duel.code }); p1.call("duel:ready"); p2.call("duel:ready"); p1.call("duel:ready");
     assert.equal(p1.call("duel:bid", { gameIdx: 0, amount: 10 }).ok, true);
+    duelRealtime.duels.get(duel.code).auctionEndsAt = Date.now() - 1;
     assert.equal(p1.call("duel:choose", { gameIdx: 0 }).ok, true);
     assert.equal(p1.call("duel:play", { game: "mines", wager: 10, choice: { picks: 1 } }).ok, false);
     const sum = balance(a, "duel") + balance(b, "duel");
@@ -373,9 +375,18 @@ test("a waiting duel can be cancelled without blocking a new duel or charging cr
 });
 test("race replacement refunds old stakes, can be cancelled and is persisted", () => {
     const id = user(), io = new FakeIO();
+    pool.db.run("UPDATE users SET display_name=?, avatar=? WHERE id=?", ["Race Owner", "\u{1F451}", id]);
     const racing = require("../src/realtime/racing"); racing.setupRacing(io);
     const socket = io.connect(id), room = socket.call("race:create").race;
+    assert.equal(room.players[0].displayName, "Race Owner");
+    assert.equal(room.players[0].avatar, "\u{1F451}");
+    assert.equal(room.players[0].online, true);
+    assert.equal(room.startedAt, null);
+    assert.ok(Number.isFinite(room.serverTime));
     socket.call("race:bet", { horseId: 0, amount: 100 }); socket.call("race:bet", { horseId: 1, amount: 200 });
+    const visible = io.messages.filter((message) => message.event === "race:state").at(-1).data;
+    assert.equal(visible.players[0].stake, 200);
+    assert.equal(visible.players[0].id, id);
     assert.equal(balance(id, "coop"), 999800);
     assert.ok(pool.db.get("SELECT state FROM realtime_sessions WHERE mode = 'race' AND code = ?", [room.code]));
     assert.equal(socket.call("race:withdraw").ok, true); assert.equal(balance(id, "coop"), 1000000);

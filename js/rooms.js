@@ -56,7 +56,7 @@ const Rooms = (() => {
             });
             socket.on("room:round", (round) => {
                 renderRound(round);
-                showRound(round);
+                showRound(round, true);
                 ArcadiaWallet.refresh().catch((error) => toastMsg(error.message));
             });
             socket.on("room:live", ({ play, serverTime }) => {
@@ -105,8 +105,8 @@ const Rooms = (() => {
             if (!p.online) li.className = "offline";
             const isMe = me && p.id === me.id;
             li.innerHTML = `
-                <span>${isMe ? "Você" : escapeHtml(p.username)} ${p.id === room.hostId ? '<span class="host-tag">👑 host</span>' : ""}</span>
-                <span class="muted">stake: ${ArcadiaWallet.format(p.stake)}</span>
+                <span>${escapeHtml(p.displayName || p.username)}${isMe ? " (você)" : ""} ${p.id === room.hostId ? '<span class="host-tag">👑 host</span>' : ""}</span>
+                <span class="player-stake" title="Participação no pote">${ArcadiaWallet.format(p.stake)}</span>
             `;
             list.appendChild(li);
             const name = li.firstElementChild; name.classList.add("player-identity");
@@ -121,6 +121,7 @@ const Rooms = (() => {
             visual = ArcadiaVisuals.create($("coopLiveStage"), room.game);
         }
         if (room.activePlay) {
+            if (room.serverTime - room.activePlay.startedAt < 3500) ArcadiaBattle.present($("coopBattleIntro"), room.activePlay.id, room.players.filter((p) => p.stake > 0));
             visual.live(room.activePlay, room.serverTime);
             $("coopLiveStatus").textContent = room.activePlay.playerName + " · Em jogo";
         } else if (room.history.length) showRound(room.history.at(-1));
@@ -339,8 +340,9 @@ const Rooms = (() => {
         if ($("mpCashout")) $("mpCashout").disabled = !active || active.playerId !== ArcadiaAPI.getUser()?.id;
         document.querySelectorAll("#gameArea [data-rt]").forEach((button) => { button.disabled = Boolean(animating); });
     }
-    function showRound(round) {
+    function showRound(round, introduce = false) {
         if (!visual || lastRoundId === round.id) return;
+        if (introduce && currentRoom) ArcadiaBattle.present($("coopBattleIntro"), round.id, currentRoom.players.filter((p) => p.stake > 0));
         lastRoundId = round.id; animating = true; lockControls();
         $("coopLiveStatus").textContent = "Rodada de " + round.playerName;
         const key = visualKey;

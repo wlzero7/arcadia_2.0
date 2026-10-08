@@ -30,6 +30,7 @@
         try {
             const data = await ArcadiaAPI.request("/api/games/blackjack/" + name, { method: "POST", ...(body ? { body: JSON.stringify(body) } : {}) });
             render(data); canDouble = data.canDouble; Sfx.card();
+            if (data.card) { Sfx.cardDrop(data.card.rarity); await trumps.refresh(); }
         } catch (err) {
             $("gameMessage").textContent = err.message;
             try {

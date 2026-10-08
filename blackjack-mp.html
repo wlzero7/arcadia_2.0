@@ -7,6 +7,7 @@
     <title>Blackjack Multiplayer — Arcadia</title>
     <link rel="stylesheet" href="css/global.css">
     <link rel="stylesheet" href="css/blackjack-mp.css">
+    <link rel="stylesheet" href="css/multiplayer-arena.css">
 </head>
 <body>
     <header class="header">
@@ -29,7 +30,7 @@
 
     <main class="container bjmp-main">
         <h1>🃏 <span class="accent">Blackjack Multiplayer</span></h1>
-        <p class="muted">Mesa compartilhada! Compre cartas, use <strong>cartas especiais</strong> (30% de chance ao comprar) e gerencie seu <strong>NRG</strong>. Maior mão dentro do limite vence!</p>
+        <p class="muted">Mesa cooperativa de Blackjack.</p>
 
         <div class="bjmp-lobby" id="bjmpLobby">
             <button class="btn btn-primary" id="createTableBtn">🃏 Criar mesa</button>
@@ -39,7 +40,7 @@
             </div>
         </div>
 
-        <section class="bjmp-arena hidden" id="bjmpArena">
+        <section class="bjmp-arena multiplayer-arena hidden" id="bjmpArena">
             <div class="bjmp-header">
                 <span>Mesa: <strong class="accent" id="tableCode">—</strong></span>
                 <span class="muted">Limite: <strong id="tableLimit">21</strong></span>
@@ -59,6 +60,7 @@
             <div class="bjmp-actions hidden" id="actionsRow">
                 <button class="btn btn-primary" id="hitBtn">Comprar (Hit)</button>
                 <button class="btn btn-outline" id="standBtn">Parar (Stand)</button>
+                <button class="btn btn-outline" id="doubleBtn">Dobrar</button>
                 <button class="btn btn-outline" id="specialsBtn">🎴 Cartas (<span id="specialsCount">0</span>)</button>
                 <span class="nrg-badge">⚡ NRG: <strong id="nrgValue">0</strong></span>
             </div>
@@ -87,6 +89,7 @@
     <script src="js/api.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="js/wallet.js"></script>
+    <script src="js/battle-presentation.js"></script>
     <script src="js/blackjack-mp.js"></script>
 </body>
 </html>

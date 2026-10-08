@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="css/blackjack.css">
     <link rel="stylesheet" href="css/duel.css">
     <link rel="stylesheet" href="css/football.css">
+    <link rel="stylesheet" href="css/multiplayer-arena.css">
 </head>
 
 <body>
@@ -40,7 +41,7 @@
 
         <div class="page-head">
             <h1>⚔️ Duelo x1</h1>
-            <p class="muted">Desafie um amigo. Primeiro a falir, perde. Carteira DUEL separada.</p>
+            <p class="muted">Desafie um amigo. Primeiro a esgotar o capital da batalha, perde.</p>
         </div>
 
         <div class="duel-lobby" id="duelLobby">
@@ -53,7 +54,10 @@
             </div>
         </div>
 
-        <section class="duel-arena hidden" id="duelArena">
+        <section class="duel-arena multiplayer-arena hidden" id="duelArena">
+            <label class="duel-capital" id="capitalRow">Capital da batalha (AC)
+                <input id="duelCapital" type="number" min="20" step="1" value="1000" inputmode="numeric">
+            </label>
             <div class="duel-header">
                 <span>Código: <strong class="accent" id="duelCode">—</strong></span>
                 <span class="muted" id="readyStatus"></span>
@@ -66,17 +70,20 @@
 
             <div class="duel-fighters">
                 <div class="fighter" id="p1Box">
+                    <span class="fighter-avatar" id="p1Avatar"></span>
                     <div class="fighter-name" id="p1Name">—</div>
                     <div class="fighter-balance" id="p1Balance">—</div>
                 </div>
                 <div class="duel-vs">VS</div>
                 <div class="fighter" id="p2Box">
+                    <span class="fighter-avatar" id="p2Avatar"></span>
                     <div class="fighter-name" id="p2Name">Aguardando...</div>
                     <div class="fighter-balance" id="p2Balance">—</div>
                 </div>
             </div>
 
             <div class="duel-turn" id="duelTurn">Aguardando oponente entrar...</div>
+            <div id="battleIntro" class="battle-intro hidden" role="status"></div>
 
             <section class="panel duel-live-panel" id="duelLivePanel">
                 <div class="duel-live-head">
@@ -173,6 +180,7 @@
     <script src="js/api.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="js/wallet.js"></script>
+    <script src="js/battle-presentation.js"></script>
     <script src="js/blackjack-controls.js"></script>
     <script src="js/football-visual.js"></script>
     <script src="js/duel.js"></script>

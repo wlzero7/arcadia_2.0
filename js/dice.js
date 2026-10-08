@@ -175,6 +175,7 @@ async function playDice() {
     gameMessage.style.color = "var(--text-secondary)";
 
     diceElement.classList.add("rolling");
+    Sfx.dice();
     const animationInterval = setInterval(() => {
         diceElement.textContent = generateDiceResult();
     }, 80);

@@ -169,7 +169,9 @@ for (const mode of ["solo","duel","coop"]) for (const [key,meta] of Object.entri
             const other = user(), socket = io.connect(id), guest = io.connect(other);
             const code = socket.call("duel:create").duel.code;
             guest.call("duel:join",{ code }); socket.call("duel:ready"); guest.call("duel:ready"); socket.call("duel:ready");
-            socket.call("duel:bid",{ gameIdx: 5,amount: 10 }); socket.call("duel:choose",{ gameIdx: 5 });
+            socket.call("duel:bid",{ gameIdx: 5,amount: 10 });
+            require("../src/realtime/duels").duels.get(code).auctionEndsAt = Date.now() - 1;
+            socket.call("duel:choose",{ gameIdx: 5 });
             const before = gameBalance(id,"duel") + gameBalance(other,"duel");
             assert.equal(socket.call("duel:play",{ wager: 100,choice: { trump: key } }).ok,true);
             assert.equal(gameBalance(id,"duel") + gameBalance(other,"duel"),before);
@@ -188,8 +190,11 @@ test("Duel Roulette All Win accepts the full real wallet above the ordinary limi
     const id = user(), other = user(), io = new FakeIO(), duels = require("../src/realtime/duels"); duels.setupDuels(io);
     const socket = io.connect(id), guest = io.connect(other), code = socket.call("duel:create").duel.code;
     guest.call("duel:join",{ code }); socket.call("duel:ready"); guest.call("duel:ready"); socket.call("duel:ready");
-    socket.call("duel:bid",{ gameIdx: 4,amount: 10 }); socket.call("duel:choose",{ gameIdx: 4 });
+    socket.call("duel:bid",{ gameIdx: 4,amount: 10 });
+    duels.duels.get(code).auctionEndsAt = Date.now() - 1;
+    socket.call("duel:choose",{ gameIdx: 4 });
     pool.db.run("UPDATE wallets SET balance = 2000005 WHERE user_id = ? AND kind = 'duel'",[id]);
+    duels.duels.get(code).players.p1.battleBalance = 2000005;
     assert.equal(socket.call("duel:play",{ allWin: true,wager: 10,choice: { bet: "red" } }).ok,true);
     assert.equal(pool.db.get("SELECT wager FROM bets WHERE user_id = ?",[id]).wager,2000005); assert.ok(owned(id,"all_win"));
     socket.call("duel:leave");

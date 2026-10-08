@@ -24,6 +24,7 @@ function room(game) {
     p1.call("duel:ready"); p2.call("duel:ready"); p1.call("duel:ready");
     const gameIdx = ["dice", "coinflip", "crash", "mines", "roulette", "slots"].indexOf(game);
     p1.call("duel:bid", { gameIdx, amount: 10 });
+    realtime.duels.get(created.code).auctionEndsAt = Date.now() - 1;
     assert.equal(p1.call("duel:choose", { gameIdx }).ok, true);
     const duel = realtime.duels.get(created.code);
     const total = () => gameBalance(a, "duel") + gameBalance(b, "duel");

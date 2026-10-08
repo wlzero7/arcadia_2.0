@@ -2,7 +2,7 @@ const pool = require("../config/database");
 const { GAMES, minesMultiplier, crashMultiplier } = require("../routes/game.routes");
 const { code, random, shuffle } = require("../services/random");
 const store = require("../services/realtimeStore");
-const { wager, recordBet } = require("../services/rounds");
+const { wager, recordBets } = require("../services/rounds");
 const roulette = require("../services/roulette");
 const { TRUMPS, resolveSpin, rollCardDrop } = require("../services/slotsEngine");
 const bj = require("../services/blackjack");
@@ -11,11 +11,17 @@ const clubs = require("../services/football-clubs");
 const { unlockAchievement, trackDuelActivity } = require("../services/progression.routes");
 const duels = store.load("duel");
 const MODES = ["dice", "coinflip", "crash", "mines", "roulette", "slots", "blackjack", "football"];
+const AUCTION_MS = 25000;
+const { identity } = require("../services/avatars");
 
 function activeState(play) {
     if (!play) return null;
     if (play.game === "football") return { ...football.publicMatch(play), playerKey: play.playerKey, username: play.username };
-    if (play.game === "blackjack") return { id: play.id, game: play.game, playerKey: play.playerKey, username: play.username, wager: play.wager, startedAt: play.startedAt, ...bj.publicHand(play) };
+    if (play.game === "blackjack") return { id: play.id, game: play.game, playerKey: play.playerKey, username: play.username,
+        opponentName: play.opponentName, pvp: !!play.pvp, wager: play.wager, startedAt: play.startedAt,
+        ...bj.publicHand(play, !!play.pvp),
+        energy: { [play.playerKey]: play.nrg ?? 5, [play.playerKey === "p1" ? "p2" : "p1"]: play.dealerNrg ?? 5 },
+        doubleAllowed: { [play.playerKey]: bj.publicHand(play).canDouble, [play.playerKey === "p1" ? "p2" : "p1"]: bj.publicHand(bj.orient(play, true)).canDouble } };
     const multiplier = play.game === "mines" ? minesMultiplier(play.mines.length, play.picked.length)
         : Math.floor(crashMultiplier(play.startedAt) * 100) / 100;
     return { id: play.id, game: play.game, playerKey: play.playerKey, username: play.username, wager: play.wager,
@@ -24,14 +30,75 @@ function activeState(play) {
 }
 
 function syncBalances(duel) {
-    for (const p of Object.values(duel.players)) if (p) p.balance = pool.getWalletSync(p.userId, "duel").balance;
+    const players = Object.values(duel.players).filter(Boolean);
+    if (!players.length) return;
+    const balances = new Map(pool.db.all(`SELECT user_id, balance FROM wallets WHERE kind='duel' AND user_id IN (${players.map(() => "?").join(",")})`, players.map((p) => p.userId)).map((w) => [w.user_id, w.balance]));
+    for (const p of Object.values(duel.players)) if (p) {
+        p.walletBalance = balances.get(p.userId) ?? pool.getWalletSync(p.userId, "duel").balance;
+        p.balance = p.battleBalance == null ? (p.ready ? p.entryBalance ?? p.walletBalance : p.walletBalance)
+            : Math.min(p.battleBalance, p.walletBalance);
+    }
 }
 function duelState(duel) {
     syncBalances(duel);
-    const player = (p) => p ? { userId: p.userId, username: p.username, balance: p.balance, ready: p.ready } : null;
+    const player = (p) => p ? { ...identity(p.userId), username: p.username, balance: p.balance,
+        entryBalance: p.entryBalance ?? p.balance, ready: p.ready } : null;
     return { code: duel.code, phase: duel.phase, round: duel.round, turn: duel.turn, p1: player(duel.players.p1), p2: player(duel.players.p2),
+        auctionEndsAt: duel.auctionEndsAt || null, battleStartedAt: duel.battleStartedAt || null,
         auction: duel.auction, auctionWinner: duel.auctionWinner, chosenGame: duel.chosenGame,
         activePlay: activeState(duel.activePlay), lastPlay: duel.lastPlay || null, footballTeams: duel.footballTeams || null, footballMarkets: duel.footballMarkets || null, serverTime: Date.now(), log: duel.log.slice(-50) };
+}
+function beginAuction(duel) {
+    for (const p of Object.values(duel.players)) {
+        const wallet = pool.getWalletSync(p.userId, "duel");
+        if (wallet.balance < p.entryBalance) throw new Error("Saldo DUEL mudou. Confirme o capital novamente.");
+        p.battleBalance = p.entryBalance;
+    }
+    duel.phase = "auction";
+    duel.auctionEndsAt = Date.now() + AUCTION_MS;
+    duel.auction = MODES.map((game) => ({ game, bids: { p1: 0, p2: 0 } }));
+    pushLog(duel, "Leilao aberto por 25 segundos.");
+}
+function migrateCapital(duel) {
+    if (duel.capitalVersion === 2 || duel.phase === "finished") return;
+    const battling = ["auction", "playing"].includes(duel.phase);
+    for (const p of Object.values(duel.players)) if (p) {
+        const balance = pool.getWalletSync(p.userId, "duel").balance;
+        if (battling) {
+            // Legacy battles risked the whole wallet; preserve their remaining capital.
+            p.battleBalance = Math.min(balance, Number.isSafeInteger(p.battleBalance) ? p.battleBalance
+                : Number.isSafeInteger(p.balance) ? p.balance : balance);
+            p.entryBalance ??= p.battleBalance;
+        } else if (p.ready) {
+            p.entryBalance = Math.min(balance, p.entryBalance ?? balance);
+            if (p.entryBalance < 20) { p.ready = false; delete p.entryBalance; }
+        }
+    }
+    if (duel.phase === "auction" && !Number.isFinite(duel.auctionEndsAt)) duel.auctionEndsAt = Date.now() + AUCTION_MS;
+    if (duel.phase === "ready") duel.phase = "waiting";
+    if (duel.phase === "waiting" && duel.players.p1.ready && duel.players.p2?.ready) beginAuction(duel);
+    duel.capitalVersion = 2;
+    store.save("duel", duel);
+}
+function closeAuction(duel, now = Date.now()) {
+    if (duel.phase !== "auction" || now < duel.auctionEndsAt) return false;
+    syncBalances(duel);
+    const offers = duel.auction.flatMap((slot, index) => ["p1", "p2"].map((key) => ({
+        key, game: slot.game, amount: slot.bids[key], index, at: slot.bidOrder?.[key] ?? slot.bidAt?.[key] ?? 0,
+    }))).filter((offer) => offer.amount > 0 && offer.amount <= duel.players[offer.key].balance - 10);
+    offers.sort((a, b) => b.amount - a.amount || a.at - b.at || a.index - b.index || a.key.localeCompare(b.key));
+    const offer = offers[0] || { key: "p1", amount: 0, game: MODES[Math.floor(random() * MODES.length)] };
+    const player = duel.players[offer.key];
+    if (offer.amount) pool.adjustBalanceSync(pool.getWalletSync(player.userId, "duel").id, -offer.amount, "bet", "duel", duel.code);
+    player.battleBalance -= offer.amount;
+    duel.auctionWinner = offer.key; duel.chosenGame = offer.game; duel.turn = offer.key;
+    duel.phase = "playing"; duel.battleStartedAt = now; duel.lastPlay = null;
+    if (offer.game === "football") {
+        duel.footballTeams = Object.fromEntries(Object.entries(duel.players).map(([k, p]) => [k, clubs.asTeam(clubs.load(p.userId))]));
+        duel.footballMarkets = { p1: football.market(duel.footballTeams.p1, duel.footballTeams.p2), p2: football.market(duel.footballTeams.p2, duel.footballTeams.p1) };
+    }
+    pushLog(duel, "Partida iniciada: " + offer.game + ". Maior lance: " + offer.amount + " AC.");
+    return true;
 }
 function pushLog(duel, message) {
     duel.log.push({ system: true, message, at: Date.now() });
@@ -40,7 +107,7 @@ function pushLog(duel, message) {
 function createDuel(userId, username) {
     let roomCode;
     do { roomCode = code(); } while (duels.has(roomCode));
-    const duel = { code: roomCode, phase: "waiting", round: 1, turn: "p1",
+    const duel = { code: roomCode, capitalVersion: 2, phase: "waiting", round: 1, turn: "p1",
         players: { p1: { userId, username, balance: pool.getWalletSync(userId, "duel").balance, ready: false, socketIds: new Set() }, p2: null },
         auction: null, auctionWinner: null, chosenGame: null, activePlay: null, lastPlay: null, log: [] };
     store.save("duel", duel);
@@ -66,25 +133,41 @@ function playGame(game, amount, choice = {}) {
     throw new Error("Jogo inválido.");
 }
 function settlePlay(duel, key, amount, raw, choice = {}, trump = null, id = null) {
+    syncBalances(duel);
     const actor = duel.players[key], oppKey = key === "p1" ? "p2" : "p1";
-    const wallet = pool.getWalletSync(actor.userId, "duel"), oppWallet = pool.getWalletSync(duel.players[oppKey].userId, "duel");
     const charged = amount * (raw.detail?.lossMultiplier || 1);
     let profit = raw.payout - charged;
-    if (trump === "allwin") profit = raw.payout > amount ? oppWallet.balance : -wallet.balance;
-    const transfer = profit > 0 ? Math.min(profit, oppWallet.balance) : Math.max(profit, -wallet.balance);
-    pool.adjustBalanceSync(wallet.id, transfer, transfer >= 0 ? "payout" : "bet", "duel", duel.code);
-    pool.adjustBalanceSync(oppWallet.id, -transfer, transfer > 0 ? "bet" : "payout", "duel", duel.code);
+    if (trump === "allwin") profit = raw.payout > amount ? duel.players[oppKey].balance : -actor.balance;
+    const transfer = profit > 0 ? Math.min(profit, duel.players[oppKey].balance) : Math.max(profit, -actor.balance);
+    pool.adjustWalletsSync([
+        { userId: actor.userId, walletKind: "duel", delta: transfer, kind: transfer >= 0 ? "payout" : "bet", refType: "duel", refId: duel.code },
+        { userId: duel.players[oppKey].userId, walletKind: "duel", delta: -transfer, kind: transfer > 0 ? "bet" : "payout", refType: "duel", refId: duel.code },
+    ]);
+    if (actor.battleBalance != null) actor.battleBalance += transfer;
+    if (duel.players[oppKey].battleBalance != null) duel.players[oppKey].battleBalance -= transfer;
     const outcome = transfer > 0 ? "win" : transfer < 0 ? "loss" : "push";
     const result = { outcome, multiplier: (charged + transfer) / charged, payout: charged + transfer, detail: raw.detail };
     const cancelled = raw.payout === amount && (raw.detail?.cancelled || (duel.chosenGame === "mines" && !raw.detail?.opened?.length));
     if (cancelled) result.cancelled = true;
-    else recordBet(actor.userId, "duel", charged, result.payout, outcome, { ...raw.detail, ...raw.detail?.detail, allWin: duel.activePlay?.allWin ?? (charged === wallet.balance), baseWager: amount, game: duel.chosenGame, duelCode: duel.code });
+    else {
+        const play = duel.activePlay;
+        const entries = [{ userId: actor.userId, game: "duel", amount: charged, payout: result.payout, outcome, detail: { ...raw.detail, ...raw.detail?.detail,
+            allWin: play?.pvp ? (key === play.playerKey ? play.allWin : play.opponentAllWin)
+                : play?.allWin ?? (charged === actor.balance), baseWager: amount, game: duel.chosenGame, duelCode: duel.code } }];
+        if (play?.pvp) {
+            const view = bj.orient(play, key !== play.playerKey), counterWager = Math.max(amount, Math.abs(transfer));
+            entries.push({ userId: duel.players[oppKey].userId, game: "duel", amount: counterWager, payout: counterWager - transfer,
+                outcome: transfer > 0 ? "loss" : transfer < 0 ? "win" : "push", detail: { game: "blackjack", duelCode: duel.code, pvp: true,
+                    player: view.dealer, playerTotal: bj.total(view.dealer, play.limit, view.dealerFactor || 1), hits: view.dealerHits || 0,
+                    allWin: oppKey === play.playerKey ? play.allWin === true : play.opponentAllWin === true } });
+        }
+        recordBets(entries);
+    }
     if (duel.chosenGame === "slots") {
         result.card = rollCardDrop(true);
         if (result.card) pool.db.run("INSERT INTO slots_cards (user_id, card_key, rarity) VALUES (?, ?, ?)", [actor.userId, result.card.key, result.card.rarity]);
         require("../services/achievements").checkProfileAchievements(actor.userId);
     }
-    if (duel.chosenGame === "blackjack" && !cancelled) result.card = bj.drop(actor.userId);
     syncBalances(duel);
     duel.lastPlay = { id: id || `${duel.code}:${duel.round}:${code()}`, round: duel.round, game: duel.chosenGame,
         playerKey: key, username: actor.username, wager: amount, charged, transfer, outcome,
@@ -126,6 +209,7 @@ function finishDuel(duel, winnerKey) {
     pushLog(duel, winner.username + " venceu o duelo!");
 }
 function setupDuels(io) {
+    for (const duel of duels.values()) pool.transactionSync(() => migrateCapital(duel));
     const crashTimers = new Map();
     const liveTimer = setInterval(() => {
         for (const duel of duels.values()) if (duel.phase === "playing" && duel.activePlay?.game === "football") {
@@ -144,16 +228,17 @@ function setupDuels(io) {
         clearTimeout(crashTimers.get(duel.code));
         crashTimers.delete(duel.code);
         const play = duel.activePlay;
-        if (duel.phase !== "playing" || !["crash", "football"].includes(play?.game)) return;
-        const remaining = play.game === "football" ? play.startedAt + play.durationMs - Date.now()
+        const auction = duel.phase === "auction";
+        if (!auction && (duel.phase !== "playing" || !["crash", "football"].includes(play?.game))) return;
+        const remaining = auction ? duel.auctionEndsAt - Date.now() : play.game === "football" ? play.startedAt + play.durationMs - Date.now()
             : play.startedAt + Math.log(Math.min(play.crashPoint, play.autoCashout || Infinity)) / (Math.log(1.06) * 6) * 1000 - Date.now();
         const timer = setTimeout(() => {
             const before = structuredClone(duel);
             try {
-                pool.transactionSync(() => { updateCrash(duel); store.save("duel", duel); });
-                publish(duel);
+                pool.transactionSync(() => { closeAuction(duel); updateCrash(duel); store.save("duel", duel); });
+                try { publish(duel); } catch (err) { console.error("Duelo state delivery:", err.message); }
             } catch (err) {
-                Object.assign(duel, before);
+                store.restore(duel, before);
                 console.error("Duelo Crash:", err.message);
             }
             scheduleCrash(duel);
@@ -180,6 +265,10 @@ function setupDuels(io) {
                 if (typeof data === "function") { cb = data; data = {}; }
                 const duel = duels.get(socket.data.duelCode);
                 const before = duel && structuredClone(duel);
+                const priorCode = socket.data.duelCode;
+                const target = event === "duel:join" ? duels.get(String(data?.code || "").toUpperCase().trim()) : null;
+                const targetBefore = target && target !== duel && structuredClone(target);
+                const priorCodes = event === "duel:create" ? new Set(duels.keys()) : null;
                 try {
                     const result = pool.transactionSync(() => {
                         const result = fn(data || {});
@@ -188,11 +277,21 @@ function setupDuels(io) {
                         return result;
                     });
                     const active = duels.get(socket.data.duelCode);
-                    if (active) { publish(active); scheduleCrash(active); }
+                    if (active) {
+                        scheduleCrash(active);
+                        try { publish(active); } catch (err) { console.error("Duelo state delivery:", err.message); }
+                    }
                     if (result.left) { socket.leave("duel:" + active.code); socket.data.duelCode = null; }
                     if (typeof cb === "function") cb({ ok: true, ...result });
                 } catch (err) {
-                    if (duel && before) Object.assign(duel, before);
+                    if (duel && before) store.restore(duel, before);
+                    if (targetBefore) store.restore(target, targetBefore);
+                    if (priorCodes) for (const key of duels.keys()) if (!priorCodes.has(key)) duels.delete(key);
+                    if (socket.data.duelCode !== priorCode) {
+                        socket.leave("duel:" + socket.data.duelCode);
+                        if (priorCode) socket.join("duel:" + priorCode);
+                        socket.data.duelCode = priorCode;
+                    }
                     if (typeof cb === "function") cb({ ok: false, error: err.message });
                 }
             });
@@ -222,14 +321,16 @@ function setupDuels(io) {
             updateCrash(duel);
             return { duel: duelState(duel) };
         });
-        on("duel:ready", () => {
+        on("duel:ready", (data) => {
             const duel = current(), key = participant(duel);
-            if (duel.phase === "ready" && key === "p1") {
-                duel.phase = "auction";
-                duel.auction = MODES.map((game) => ({ game, bids: { p1: 0, p2: 0 } }));
-            } else if (duel.phase === "waiting" || duel.phase === "ready") {
+            if (duel.phase === "auction" && duel.players[key].ready) return {};
+            if (duel.phase === "waiting" || duel.phase === "ready") {
+                const wallet = pool.getWalletSync(socket.userId, "duel");
+                const amount = data.capital == null ? wallet.balance : wager(data.capital, 20, Number.MAX_SAFE_INTEGER);
+                if (amount < 20 || amount > wallet.balance) throw new Error("Escolha um capital entre 20 AC e seu saldo DUEL.");
+                duel.players[key].entryBalance = amount;
                 duel.players[key].ready = true;
-                if (duel.players.p1.ready && duel.players.p2?.ready) duel.phase = "ready";
+                if (duel.players.p1.ready && duel.players.p2?.ready) beginAuction(duel);
             } else throw new Error("Duelo já iniciado.");
             return {};
         });
@@ -238,7 +339,7 @@ function setupDuels(io) {
             if (duel.phase === "finished") throw new Error("Duelo já encerrado.");
             if (duel.activePlay) {
                 const play = duel.activePlay;
-                settlePlay(duel, play.playerKey, play.wager, { payout: play.playerKey === key ? 0 : play.wager,
+                settlePlay(duel, play.pvp ? key : play.playerKey, play.wager, { payout: play.pvp || play.playerKey === key ? 0 : play.wager,
                     detail: { cancelled: true, minePositions: play.mines, opened: play.picked, crashPoint: play.crashPoint } }, {}, null, play.id);
             }
             if (duel.phase === "playing") finishDuel(duel, key === "p1" ? "p2" : "p1");
@@ -249,25 +350,21 @@ function setupDuels(io) {
         on("duel:bid", (data) => {
             const duel = current(), key = participant(duel);
             if (duel.phase !== "auction") throw new Error("Leilão fechado.");
+            if (Date.now() >= duel.auctionEndsAt) throw new Error("Tempo do leilao encerrado.");
             const slot = duel.auction[Number(data.gameIdx)];
             const amount = wager(data.amount);
             if (!slot) throw new Error("Modo inválido.");
-            if (pool.getWalletSync(socket.userId, "duel").balance < amount) throw new Error("Saldo DUEL insuficiente.");
+            syncBalances(duel);
+            if (duel.players[key].balance - amount < 10) throw new Error("Reserve pelo menos 10 AC do capital para jogar.");
             if (amount <= Math.max(...Object.values(slot.bids))) throw new Error("O lance deve superar o anterior.");
             slot.bids[key] = amount;
+            (slot.bidAt ||= {})[key] = Date.now();
+            (slot.bidOrder ||= {})[key] = duel.bidSequence = (duel.bidSequence || 0) + 1;
             return {};
         });
         on("duel:choose", (data) => {
-            const duel = current(), key = participant(duel), oppKey = key === "p1" ? "p2" : "p1";
-            if (duel.phase !== "auction") throw new Error("Leilão fechado.");
-            const slot = duel.auction[Number(data.gameIdx)];
-            if (!slot || slot.bids[key] <= slot.bids[oppKey]) throw new Error("Você precisa liderar o lance.");
-            const wallet = pool.getWalletSync(socket.userId, "duel");
-            if (wallet.balance - slot.bids[key] < 10) throw new Error("Reserve pelo menos 10 AC para jogar.");
-            pool.adjustBalanceSync(wallet.id, -slot.bids[key], "bet", "duel", duel.code);
-            duel.auctionWinner = key; duel.chosenGame = slot.game; duel.turn = key; duel.phase = "playing"; duel.lastPlay = null;
-            if (slot.game === "football") duel.footballTeams = Object.fromEntries(Object.entries(duel.players).map(([k, player]) => [k, clubs.asTeam(clubs.load(player.userId))]));
-            if (slot.game === "football") duel.footballMarkets = { p1: football.market(duel.footballTeams.p1, duel.footballTeams.p2), p2: football.market(duel.footballTeams.p2, duel.footballTeams.p1) };
+            const duel = current(); participant(duel);
+            if (!closeAuction(duel)) throw new Error("A partida comeca automaticamente ao terminar os 25 segundos.");
             return {};
         });
         on("duel:play", (data) => {
@@ -277,15 +374,17 @@ function setupDuels(io) {
             const game = duel.chosenGame;
             if (data.game && data.game !== game) throw new Error("Jogue o modo escolhido no leilão.");
             const wallet = pool.getWalletSync(socket.userId, "duel");
-            let amount = data.allWin === true ? wager(wallet.balance, 1, Number.MAX_SAFE_INTEGER) : wager(data.wager);
+            syncBalances(duel);
+            const capital = duel.players[key].balance;
+            let amount = data.allWin === true ? wager(capital, 1, Number.MAX_SAFE_INTEGER) : wager(data.wager);
             const trump = game === "slots" ? data.choice?.trump || null : null;
             if (trump && !Object.hasOwn(TRUMPS, trump)) throw new Error("Trunfo inválido.");
-            if (trump === "allwin") amount = wallet.balance;
+            if (trump === "allwin") amount = capital;
             const maximum = amount * (trump === "duplicador" ? 2 : 1);
-            if (wallet.balance < maximum) throw new Error("Saldo DUEL insuficiente para a perda máxima.");
+            if (capital < maximum) throw new Error("Capital da batalha insuficiente para a perda maxima.");
             if (game === "mines" || game === "crash" || game === "blackjack" || game === "football") {
                 const play = { id: `${duel.code}:${duel.round}:${code()}`, game, playerKey: key, username: socket.username,
-                    wager: amount, allWin: amount === wallet.balance, startedAt: Date.now() };
+                    wager: amount, allWin: amount === capital, startedAt: Date.now() };
                 if (game === "football") {
                     const oppKey = key === "p1" ? "p2" : "p1";
                     Object.assign(play, football.createMatch(duel.footballTeams[key], duel.footballTeams[oppKey], "home", amount));
@@ -295,7 +394,10 @@ function setupDuels(io) {
                     play.mines = shuffle(Array.from({ length: 25 }, (_, i) => i)).slice(0, count);
                     play.picked = [];
                 } else if (game === "blackjack") {
-                    Object.assign(play, bj.createHand());
+                    if (amount > duel.players[key === "p1" ? "p2" : "p1"].balance) throw new Error("O adversario nao pode cobrir esta aposta.");
+                    Object.assign(play, bj.createHand(), { pvp: true, dealerNrg: 5, dealerHits: 0,
+                        opponentAllWin: amount === duel.players[key === "p1" ? "p2" : "p1"].balance,
+                        opponentName: duel.players[key === "p1" ? "p2" : "p1"].username });
                 } else {
                     const target = data.choice?.autoCashout;
                     play.autoCashout = target == null || target === "" ? null : Number(target);
@@ -305,7 +407,6 @@ function setupDuels(io) {
                 duel.activePlay = play;
                 duel.lastPlay = null;
                 pushLog(duel, socket.username + " iniciou " + game + ".");
-                if (game === "blackjack" && (bj.handValue(play.player) === 21 || bj.handValue(play.dealer) === 21)) return { result: finishBlackjack(duel, play, true) };
                 return { active: true };
             }
             if (trump) {
@@ -337,21 +438,55 @@ function setupDuels(io) {
                 detail: { minePositions: play.mines, opened: play.picked, multiplier } }, { mines: play.mines.length }, null, play.id);
         }
         function finishBlackjack(duel, play, natural = false) {
+            if (play.pvp) {
+                const first = bj.total(play.player, play.limit, play.playerFactor || 1);
+                const second = bj.total(play.dealer, play.limit, play.dealerFactor || 1);
+                const otherKey = play.playerKey === "p1" ? "p2" : "p1";
+                const winner = first > play.limit && second > play.limit ? null
+                    : first <= play.limit && (second > play.limit || first > second) ? play.playerKey
+                    : second <= play.limit && (first > play.limit || second > first) ? otherKey : null;
+                if ((winner !== play.playerKey && winner && play.recovery) || (winner !== otherKey && winner && play.dealerRecovery)
+                    || (!winner && first > play.limit && (play.recovery || play.dealerRecovery))) {
+                    bj.restart(play); duel.turn = play.playerKey; return { restarted: true };
+                }
+                const actorKey = winner || play.playerKey, loserKey = actorKey === "p1" ? "p2" : "p1";
+                const view = bj.orient(play, actorKey !== play.playerKey);
+                const raw = winner ? bj.result(view) : { outcome: "push", payout: play.wager,
+                    detail: { player: play.player, dealer: play.dealer, playerTotal: first, dealerTotal: second, hits: play.hits || 0, limit: play.limit } };
+                raw.detail.pvp = true; raw.detail.opponentName = duel.players[loserKey].username;
+                const result = settlePlay(duel, actorKey, play.wager, raw, {}, null, play.id);
+                return result;
+            }
+            if (bj.result(play, natural).outcome === "loss" && play.recovery) { bj.restart(play); return { restarted: true }; }
             return settlePlay(duel, play.playerKey, play.wager, bj.result(play, natural), {}, null, play.id);
         }
         for (const action of ["hit", "stand", "double", "special"]) on("duel:" + action, (data) => {
             const duel = current(), key = participant(duel), play = duel.activePlay;
-            if (duel.phase !== "playing" || play?.game !== "blackjack" || play.playerKey !== key) throw new Error("Nao e sua vez no Blackjack.");
-            if (action === "special") bj.useSpecial(socket.userId, play, data);
-            else if (action === "hit") bj.drawPlayer(play);
+            if (duel.phase !== "playing" || play?.game !== "blackjack" || (play.pvp ? duel.turn !== key : play.playerKey !== key)) throw new Error("Nao e sua vez no Blackjack.");
+            const view = bj.orient(play, play.pvp && key !== play.playerKey);
+            if (action === "special") bj.useSpecial(socket.userId, view, data);
+            else if (action === "hit") bj.drawPlayer(view);
             else if (action === "double") {
-                if (!bj.publicHand(play).canDouble) throw new Error("Dobrar so com as duas cartas iniciais.");
-                if (pool.getWalletSync(socket.userId, "duel").balance < play.wager * 2) throw new Error("Saldo DUEL insuficiente para dobrar.");
-                play.wager *= 2; play.doubled = true; bj.drawPlayer(play);
-                if (bj.handValue(play.player, play.limit) <= play.limit) bj.stand(play);
-            } else bj.stand(play);
-            if (action === "stand" || action === "double" || bj.handValue(play.player, play.limit) > play.limit) return { result: finishBlackjack(duel, play) };
-            return {};
+                if (!bj.publicHand(view).canDouble) throw new Error("Dobrar so com as duas cartas iniciais.");
+                syncBalances(duel);
+                if (duel.players[key].balance < play.wager * 2) throw new Error("Capital da batalha insuficiente para dobrar.");
+                if (play.pvp && duel.players[key === "p1" ? "p2" : "p1"].balance < play.wager * 2) throw new Error("O adversario nao pode cobrir o dobro.");
+                play.wager *= 2; view.doubled = true; bj.drawPlayer(view);
+                if (play.pvp) {
+                    play.allWin = play.wager === duel.players[play.playerKey].balance;
+                    play.opponentAllWin = play.wager === duel.players[play.playerKey === "p1" ? "p2" : "p1"].balance;
+                }
+                if (play.pvp) view.stood = true;
+                else if (bj.total(view.player, play.limit, view.playerFactor || 1) <= play.limit) bj.stand(play);
+            } else if (play.pvp) view.stood = true;
+            else bj.stand(play);
+            const card = action !== "special" ? bj.actionDrop(socket.userId) : null;
+            if (play.pvp) {
+                const busted = bj.total(play.player, play.limit, play.playerFactor || 1) > play.limit || bj.total(play.dealer, play.limit, play.dealerFactor || 1) > play.limit;
+                if (busted || (play.stood && play.dealerStood)) return { result: finishBlackjack(duel, play), card };
+                if (view.stood) duel.turn = key === "p1" ? "p2" : "p1";
+            } else if (action === "stand" || action === "double" || bj.total(play.player, play.limit, play.playerFactor || 1) > play.limit) return { result: finishBlackjack(duel, play), card };
+            return { card };
         });
         on("duel:cashout", () => {
             const duel = current(), key = participant(duel), play = duel.activePlay;
@@ -360,7 +495,7 @@ function setupDuels(io) {
             if (play.game === "football") throw new Error("Aguarde o apito final do futebol.");
             return { result: play.game === "mines" ? cashoutMines(duel, play) : updateCrash(duel, true) };
         });
-        on("duel:sync", () => { const duel = current(); updateCrash(duel); return {}; });
+        on("duel:sync", () => { const duel = current(); closeAuction(duel); updateCrash(duel); return {}; });
         socket.on("disconnect", () => {
             const duel = duels.get(socket.data.duelCode);
             if (duel) { duel.players[participant(duel)].socketIds.delete(socket.id); store.save("duel", duel); }
@@ -368,4 +503,4 @@ function setupDuels(io) {
     });
     return { duels, close() { clearInterval(liveTimer); for (const timer of crashTimers.values()) clearTimeout(timer); } };
 }
-module.exports = { setupDuels, duels, createDuel };
+module.exports = { setupDuels, duels, createDuel, closeAuction, AUCTION_MS };

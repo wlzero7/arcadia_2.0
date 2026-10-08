@@ -100,7 +100,7 @@
             ball.style.left = x + "px";
             ball.style.top = y + "px";
 
-            Sfx.click();
+            Sfx.plinkoPeg();
             i++;
             setTimeout(step, 90);
         };

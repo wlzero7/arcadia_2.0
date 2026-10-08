@@ -1,0 +1,115 @@
+/* Shared presentation for Duel and cooperative arenas. */
+.multiplayer-arena {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    min-width: 0;
+    color: var(--text);
+}
+.multiplayer-arena .fighter,
+.multiplayer-arena .bj-player,
+.multiplayer-arena .players-list li {
+    background: var(--bg);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    min-width: 0;
+}
+.multiplayer-arena .fighter.my-turn,
+.multiplayer-arena .bj-player.my-turn {
+    border-color: var(--success);
+    box-shadow: 0 0 18px rgba(16, 185, 129, .2);
+}
+.multiplayer-arena .bjmp-header,
+.multiplayer-arena .bj-name { color: var(--text); }
+.multiplayer-arena .bj-name { align-items: center; }
+.multiplayer-arena .bj-name > span:first-child {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+.multiplayer-arena .bj-total {
+    background: transparent;
+    color: var(--primary);
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
+}
+.multiplayer-arena .bj-cards {
+    background: #143b2b;
+    border-radius: 6px;
+    padding: 12px;
+    min-height: 94px;
+}
+.multiplayer-arena .specials-panel,
+.multiplayer-arena .bjmp-log {
+    background: var(--bg);
+    border-color: var(--border);
+    border-radius: 8px;
+}
+.multiplayer-arena .special-card { border-radius: 6px; }
+.multiplayer-arena .room-columns {
+    grid-template-columns: minmax(0, 1fr) 240px;
+    gap: 24px;
+}
+.multiplayer-arena .room-roster { grid-column: 1 / -1; }
+.multiplayer-arena .players-list {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+}
+.multiplayer-arena .players-list li { display: grid; gap: 6px; padding: 16px 12px; text-align: center; }
+.multiplayer-arena .race-roster { margin-bottom: 20px; }
+.multiplayer-arena .race-track { background: #143b2b; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.multiplayer-arena .race-lane { flex-wrap: wrap; }
+.multiplayer-arena .lane-horse { min-width: 0; max-width: 100%; }
+.multiplayer-arena .lane-name { white-space: normal; overflow-wrap: anywhere; }
+.multiplayer-arena .players-list .player-identity {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    font-size: 16px;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+}
+.multiplayer-arena .players-list .player-avatar {
+    width: 48px;
+    height: 48px;
+    font-size: 28px;
+    flex-shrink: 0;
+}
+.multiplayer-arena .players-list .player-stake {
+    color: var(--primary);
+    font-size: 20px;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+}
+.multiplayer-arena .game-title {
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.multiplayer-arena .game-title h3 { margin: 0; }
+.multiplayer-arena .game-visual-stage { border: 1px solid var(--border); border-radius: 8px; }
+.multiplayer-arena .room-chat { border-left: 1px solid var(--border); padding-left: 20px; }
+@media (max-width: 700px) {
+    .multiplayer-arena { padding: 16px; }
+    .multiplayer-arena .room-columns { grid-template-columns: minmax(0, 1fr); }
+    .multiplayer-arena .players-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .multiplayer-arena .room-chat { border-left: 0; padding: 20px 0 0; border-top: 1px solid var(--border); }
+    .multiplayer-arena .pot-actions { width: 100%; }
+    .multiplayer-arena .pot-actions input,
+    .multiplayer-arena .bet-row input { flex: 1 0 100%; width: 100%; }
+    .multiplayer-arena .pot-actions .btn,
+    .multiplayer-arena .bet-row .btn { flex: 1 1 auto; min-width: max-content; }
+}
+@media (max-width: 420px) {
+    .multiplayer-arena { padding: 12px; }
+    .multiplayer-arena .players-list li { padding: 12px 8px; }
+    .multiplayer-arena .players-list .player-identity { font-size: 14px; }
+    .multiplayer-arena .players-list .player-stake { font-size: 18px; }
+}
