@@ -85,6 +85,6 @@ async function main() {
 }
 main().catch((error) => {
     console.error("Validacao Turso falhou. Confira a configuracao privada e os limites no painel. Nenhum segredo foi exibido; nao publicar.");
-    console.error(JSON.stringify({ etapa: stage, codigo: /^[A-Z][A-Z0-9_]{0,50}$/.test(error.code || "") ? error.code : null }));
+    console.error(JSON.stringify({ etapa: stage, codigo: /^[A-Z][A-Z0-9_]{0,50}$/.test(error.code || "") ? error.code : null, tipo: /^[A-Za-z]{1,40}$/.test(error.name || "") ? error.name : "Error", operacao: error.operation || null, comando: error.command || null, rollbackFalhou: error.rollbackFailed === true }));
     process.exitCode = 1;
 });

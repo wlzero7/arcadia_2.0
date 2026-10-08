@@ -3,6 +3,41 @@
 Data: 8 de outubro de 2026. Atualizacao PARCIAL, nao publicada em main.
 Branch: feature/coop-avatars-persistence.
 Base integrada: 7441d82 (origin/main em 8/10).
+Checkpoint commitado e enviado somente na branch de testes: 7c0c45c.
+
+## Resultado da previa Render
+
+- Retomada das 07h27 iniciada com 100% da janela e 500 creditos adicionais.
+  Agendamento unico removido. Novos testes: 137/137 passaram.
+- Diagnostico preserva o erro original quando o rollback tambem falha;
+  logs informam apenas etapa/codigo/operacao, nunca SQL ou credenciais.
+  Conexao com resultado incerto permanece bloqueada ate reiniciar, e a
+  rota de saude responde 503 nesse estado.
+- Os tres alertas altos eram da cadeia nodemon/chokidar/braces, somente
+  desenvolvimento. Nodemon nao era usado (dev usa node --watch); removido.
+  Lock atualizado: auditoria apontou zero vulnerabilidades.
+
+- Previa autorizada criada: arcadia-turso-validation, Free, Oregon,
+  srv-db3j4gegekts73f0n3b0. URL e token salvos privadamente no Render.
+- Deploy dep-db3j4gmgekts73f0n4lg compilou, mas o teste falhou na etapa
+  Criar conta. Codigo de erro nao veio preenchido. Ainda nao foi medida
+  a sala de 16 jogadores a partir do Render.
+- Duas contas descartaveis permaneceram no Turso apos as tentativas.
+  Ambas tinham as tres carteiras; foram removidas com sucesso pelo SDK
+  direto, filtrando apenas contas desabilitadas da validacao.
+  Investigar especialmente confirmacao/rollback de transacao e resposta
+  do SDK no Node 20.20.2; nao presumir a causa sem diagnostico seguro.
+- Previa suspensa para interromper repeticoes. Auto-Deploy Off.
+  O site principal e main nao foram modificados.
+- Build Render apontou 3 alertas altos de auditoria; auditoria local de
+  producao apontou 0. Esclarecer plataformas/escopo e corrigir antes de
+  liberar. Nao aplicar npm audit fix --force sem analisar alteracoes.
+- Criacao de PR pelo conector recusada (403). A branch foi publicada;
+  nao existe PR criado neste checkpoint. Pode abrir via GitHub autenticado
+  ao retomar, sem mesclar antes da validacao.
+- Retomada unica agendada para 07h27 (Sao Paulo), apos o reset indicado
+  pelo aplicativo as 07h26. ID: retomar-arcadia-apos-redefinicao-dos-limites.
+  Conferir limites novamente e apagar esse agendamento ao iniciar.
 
 ## Pedido e autorizacoes
 
@@ -88,4 +123,5 @@ Base integrada: 7441d82 (origin/main em 8/10).
 - ZIP nunca inclui .env, tokens, dados privados, node_modules ou .git.
 - Previa local anterior: http://localhost:62673/rooms.html, banco local
   separado. Nao afirmar que esse processo continua ativo sem verificar.
-- Checkpoint preparado com cerca de 70% do limite da janela utilizado.
+- Checkpoint inicial com 70% utilizado; fechamento proximo ao limite.
+- ZIP atualizado: work/deliverables/arcadia-coop-economia-turso-08out.zip.

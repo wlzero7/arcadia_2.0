@@ -308,7 +308,8 @@ function transactionSync(fn) {
         db.exec("COMMIT");
         return result;
     } catch (err) {
-        db.exec("ROLLBACK");
+        try { db.exec("ROLLBACK"); }
+        catch (_) { err.rollbackFailed = true; }
         throw err;
     } finally {
         transactionDepth--;

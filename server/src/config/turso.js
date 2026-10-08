@@ -11,14 +11,16 @@ function createTursoDatabase(url, authToken) {
     const call = createSyncFn(require.resolve("./turso-worker.cjs"), { timeout: 15000 });
     let unavailable = false;
     function request(method, sql, params = []) {
-        if (unavailable) throw new Error("Banco indisponivel. Reinicie o servidor apos conferir a conexao.");
+        if (unavailable && method !== "close") throw Object.assign(new Error("Banco indisponivel. Reinicie o servidor apos conferir a conexao."), { code: "DATABASE_UNAVAILABLE" });
         let result;
         try { result = call({ method, sql, params, url, authToken }); }
-        catch (_) { unavailable = true; throw new Error("Tempo de conexao com o banco excedido. Operacao nao sera repetida automaticamente."); }
+        catch (_) { unavailable = true; throw Object.assign(new Error("Tempo de conexao com o banco excedido. Operacao nao sera repetida automaticamente."), { code: "DATABASE_TIMEOUT", operation: method }); }
         if (result.error) {
             if (result.uncertain) unavailable = true;
             const error = new Error(result.error);
             error.code = result.code;
+            error.operation = method;
+            error.command = method === "exec" && ["BEGIN IMMEDIATE", "COMMIT", "ROLLBACK"].includes(sql) ? sql : null;
             throw error;
         }
         return result.value;
@@ -30,6 +32,7 @@ function createTursoDatabase(url, authToken) {
         run: (sql, params) => request("run", sql, params),
         batch: (statements) => request("batch", null, statements),
         close: () => request("close"),
+        isAvailable: () => !unavailable,
     };
 }
 module.exports = { createTursoDatabase };

@@ -98,6 +98,7 @@ app.use("/api/progression", progression.router);
 // ========================================
 
 app.get("/api/health", (req, res) => {
+    if (pool.db.isAvailable && !pool.db.isAvailable()) return res.status(503).json({ status: "unavailable", application: "Arcadia API" });
     res.status(200).json({
         status: "ok",
         application: "Arcadia API",
