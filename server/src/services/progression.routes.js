@@ -3,10 +3,7 @@
 // Mission periods use UTC consistently across routes and game events.
 // ========================================
 
-const pool = require("../config/database");
-const { grantXP } = require("./progression");
-const { ACHIEVEMENTS, unlockAchievement, checkProfileAchievements } = require("./achievements");
-
+const { ACHIEVEMENTS, unlockAchievement, checkProfileAchievements, checkGameAchievements } = require("./achievements");
 // ========================================
 // MISSÕES — diárias e semanais (chaves genéricas)
 // ========================================
