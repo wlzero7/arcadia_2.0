@@ -1,9 +1,26 @@
 # Checkpoint: Coop, fotos, economia e Turso
 
-Data: 8 de outubro de 2026. Atualizacao PARCIAL, nao publicada em main.
+Data: 8 de outubro de 2026. Implementacao e homologacao concluidas.
+Publicacao na main e ativacao do principal em andamento.
 Branch: feature/coop-avatars-persistence.
 Base integrada: 7441d82 (origin/main em 8/10).
-Checkpoint mais recente enviado somente na branch de testes: 60fc4b6.
+Codigo homologado: b25a413 (branch de testes).
+
+## Estado atual
+
+- 142/142 testes passaram; auditoria completa zero vulnerabilidades.
+- QA passou em 1280, 390 e 320 px: jogos ao vivo, graficos, avatares,
+  ranking, missoes, XP, resgate AC nas tres carteiras, sem cortes/overlap.
+- Previa Render dep-db3nrljncjis73b5l8og APROVADA. Cadastro real da API
+  1.761 ms; primeira aposta 1.797 ms; segunda 1.260 ms; missao 1.602 ms;
+  foto 551 ms. Rollback, novo processo e BLOB passaram.
+- Roleta 16 jogadores 1.869 ms; Blackjack 8 jogadores inicio 1.079 ms,
+  maior acao 2.353 ms. Pote, prêmios e extratos conservados.
+- Restam somente as etapas de entrega: ZIP final antes do commit,
+  publicacao main, configuracao privada do principal Render, deploy e
+  verificacao de conta/carteiras/foto/sessao apos restart real.
+- As linhas abaixo registram o historico dos checkpoints e diagnósticos;
+  falhas antigas nao representam o estado atual homologado.
 
 ## Resultado da previa Render
 

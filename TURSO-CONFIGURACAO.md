@@ -1,7 +1,7 @@
 # Banco persistente: configuracao privada
 
 O banco Arcadia foi criado na conta Turso do proprietario. A integracao
-esta em validacao; nao ativar no Render antes dos testes finais.
+foi homologada no Render Free. Ativacao do principal faz parte da entrega.
 
 Em 8/10/2026 o proprietario autorizou configurar uma previa gratuita de
 validacao no Render com as credenciais privadas existentes. Esse servico
@@ -12,8 +12,9 @@ falha impede a ativacao. O site principal permanece inalterado.
 Teste real no computador passou para carteiras, recompensas, missao,
 foto, rollback e reinicio. Homologacao 60fc4b6 no Render Free/Oregon passou:
 Roleta com 16 jogadores em 1.903 ms; Blackjack com 8 jogadores iniciou em
-1.076 ms e liquidou em ate 2.399 ms. O ultimo ajuste que reduz requests de
-partidas instantaneas e conquistas de perfil precisa repetir essa validacao.
+1.076 ms e liquidou em ate 2.399 ms. Homologacao final b25a413 repetiu os
+testes com o cadastro real da API: 1.761 ms. Roleta 16 jogadores 1.869 ms;
+Blackjack 8 jogadores inicio 1.079 ms e liquidacao de ate 2.353 ms.
 O proprietario pediu expressamente que o agente configure tambem o Turso
 no servico principal ao concluir toda a atualizacao, nao neste checkpoint.
 
