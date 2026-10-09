@@ -1,0 +1,60 @@
+const test = require("node:test"), assert = require("node:assert/strict");
+const fs = require("node:fs"), os = require("node:os"), path = require("node:path"), bcrypt = require("bcryptjs");
+process.env.DB_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-recovery-")), "qa.db");
+process.env.TURSO_DATABASE_URL = "";
+process.env.NODE_ENV = "test";
+process.env.REQUIRE_PERSISTENT_DB = "0";
+if (process.env.ARCADIA_LIBSQL_TEST === "1") process.env.TURSO_DATABASE_URL = require("node:url").pathToFileURL(process.env.DB_PATH).href;
+const pool = require("../src/config/database");
+const { createRecovery, mailer, digest } = require("../src/services/recovery");
+const messages = [], mail = { configured: true, send: async (to, subject, text) => messages.push({ to, subject, text }) };
+const recovery = createRecovery({ mail, origin: "http://127.0.0.1:3000", delayMs: 5 });
+let id, original;
+test.before(async () => { original = await bcrypt.hash("OriginalPassword123!", 10); id = pool.db.run("INSERT INTO users(username,email,password_hash) VALUES('recover','recover@example.test',?)", [original]).lastInsertRowid;
+    for (const kind of ["solo", "duel", "coop"]) pool.db.run("INSERT INTO wallets(user_id,kind,balance) VALUES(?,?,12345)", [id, kind]);
+});
+const token = () => /#token=([A-Za-z0-9_-]{43})/.exec(messages.at(-1).text)[1];
+test.after(() => pool.db.close());
+test("recovery responses do not disclose account existence and store only token hashes", async () => {
+    const unknown = await recovery.request("not-registered");
+    assert.equal(messages.length, 0);
+    const known = await recovery.request("recover"); assert.deepEqual(known, unknown);
+    const secret = token(); const row = pool.db.get("SELECT * FROM password_recovery WHERE user_id=?", [id]);
+    assert.equal(row.token_hash, digest(secret)); assert.equal(row.token_hash.includes(secret), false);
+    assert.ok(row.expires_at <= Date.now() + 900000);
+});
+test("expired and superseded links fail without changing credentials", async () => {
+    const old = token();
+    await recovery.request("recover"); const fresh = token();
+    await assert.rejects(recovery.reset(old, "FreshPassword123!"), /expirado/);
+    pool.db.run("UPDATE password_recovery SET expires_at=0 WHERE token_hash=?", [digest(fresh)]);
+    await assert.rejects(recovery.reset(fresh, "FreshPassword123!"), /expirado/);
+    assert.equal(pool.db.get("SELECT password_hash FROM users WHERE id=?", [id]).password_hash, original);
+});
+test("one reset wins a race, invalidates sessions, preserves wallets and rejects replay", async () => {
+    await recovery.request("recover"); const secret = token();
+    const outcomes = await Promise.allSettled([recovery.reset(secret, "FreshPassword123!"), recovery.reset(secret, "OtherPassword123!")]);
+    assert.equal(outcomes.filter((value) => value.status === "fulfilled").length, 1);
+    assert.equal(pool.db.get("SELECT token_version FROM users WHERE id=?", [id]).token_version, 1);
+    assert.deepEqual(pool.db.all("SELECT balance FROM wallets WHERE user_id=?", [id]).map((row) => row.balance), [12345, 12345, 12345]);
+    assert.equal(pool.db.get("SELECT COUNT(*) AS n FROM password_recovery WHERE user_id=?", [id]).n, 0);
+    await assert.rejects(recovery.reset(secret, "ReplayPassword123!"), /expirado/);
+});
+test("password changes invalidate previously issued recovery and delivery failures invalidate tokens", async () => {
+    pool.db.run("DELETE FROM password_recovery_limits");
+    await recovery.request("recover"); const secret = token();
+    pool.db.run("UPDATE users SET token_version=token_version+1 WHERE id=?", [id]);
+    await assert.rejects(recovery.reset(secret, "StalePassword123!"), /expirado/);
+    const failing = createRecovery({ delayMs: 0, mail: { configured: true, send: async () => { throw Error("private fixture failure"); } } });
+    await failing.request("recover"); assert.equal(pool.db.get("SELECT COUNT(*) AS n FROM password_recovery WHERE user_id=?", [id]).n, 0);
+    await assert.rejects(createRecovery({ delayMs: 0, mail: { configured: false } }).request("recover"), /indisponivel/);
+});
+test("throttle is persistent, responses stay uniform and email uses only the fixed HTTPS provider", async () => {
+    pool.db.run("DELETE FROM password_recovery_limits"); messages.length = 0;
+    const responses = [];
+    for (let i = 0; i < 4; i++) responses.push(await recovery.request("recover"));
+    assert.equal(messages.length, 3); assert.deepEqual(responses[3], responses[0]);
+    let endpoint, payload;
+    await mailer({ BREVO_API_KEY: "fixture", MAIL_FROM_EMAIL: "sender@example.test" }, async (url, options) => { endpoint = url; payload = JSON.parse(options.body); assert.equal(options.redirect, "error"); return new Response("{}", { status: 201 }); }).send("recover@example.test", "Subject", "No markup");
+    assert.equal(endpoint, "https://api.brevo.com/v3/smtp/email"); assert.equal(payload.to[0].email, "recover@example.test"); assert.equal(payload.htmlContent, undefined);
+});

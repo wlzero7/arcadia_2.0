@@ -212,6 +212,36 @@
 
 .friends-list .remove-btn:hover { transform: scale(1.15); }
 
+.friends-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 24px 0 12px; padding-top: 20px; border-top: 1px solid var(--border); }
+.profile-main .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.friends-heading h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
+.friends-heading svg, .friend-search svg, .community-contributions svg, #addFriendBtn svg { width: 18px; height: 18px; flex-shrink: 0; }
+#friendsCount { color: #22d3ee; font-weight: 700; font-variant-numeric: tabular-nums; }
+#addFriendBtn { display: inline-flex; align-items: center; gap: 8px; }
+.friend-status { min-height: 22px; font-size: 13px; color: #a8bdc4; overflow-wrap: anywhere; }
+.friend-search { display: flex; align-items: center; gap: 8px; color: #a8bdc4; border-bottom: 1px solid var(--border); margin: 8px 0 16px; padding-bottom: 8px; }
+.friend-search input { flex: 1; min-width: 0; width: 100%; padding: 8px 0; background: none; border: 0; color: inherit; }
+.friends-list li.friend-row, .friend-request { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); }
+.friend-identity { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 160px; color: var(--text); }
+.friend-identity .player-avatar { width: 44px; height: 44px; font-size: 24px; flex-shrink: 0; }
+.friend-identity > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.friend-identity strong, .friend-identity small { display: block; }
+.friend-identity small { color: #a8bdc4; font-size: 12px; margin-top: 4px; }
+.friend-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.friend-actions .friend-action { width: 36px; height: 36px; padding: 8px; color: #a8bdc4; flex-shrink: 0; }
+.friend-action[aria-pressed="true"] { color: #facc15; background: #333026; }
+.friend-action[aria-label="Remover amizade"] { color: #fb7185; }
+.friends-list li.friends-empty { padding: 24px 12px; justify-content: center; color: #a8bdc4; border: 1px dashed var(--border); border-radius: 8px; }
+#friendRequests h3, .community-contributions h3 { font-size: 14px; margin: 12px 0; }
+.community-contributions { padding-top: 16px; margin-top: 20px; border-top: 1px solid var(--border); }
+.community-contributions a { color: #22d3ee; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+@media (max-width: 420px) {
+    #friendForm { flex-wrap: wrap; }
+    #friendForm input { flex: 1 0 100%; }
+    #friendForm .btn { width: 100%; }
+    .friend-actions { width: 100%; justify-content: flex-end; }
+}
+
 .friend-request {
     display: flex;
     justify-content: space-between;

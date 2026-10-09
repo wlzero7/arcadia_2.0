@@ -1,0 +1,12 @@
+.recovery-main { min-height: 100dvh; width: min(440px,calc(100% - 32px)); margin: auto; padding: 48px 0; }
+.recovery-brand { display: flex; align-items: center; gap: 12px; font-size: 24px; font-weight: 700; margin-bottom: 36px; }
+.recovery-brand img { width: 44px; height: 44px; object-fit: contain; }
+.recovery-panel { border-top: 1px solid var(--border); padding-top: 24px; }
+.recovery-panel h1 { font-size: 24px; margin-bottom: 24px; }
+.recovery-panel label { display: grid; gap: 8px; margin-bottom: 20px; font-size: 14px; }
+.recovery-panel input { width: 100%; min-width: 0; border-radius: 6px; }
+.recovery-panel button { width: 100%; border-radius: 6px; margin: 20px 0; }
+.recovery-panel a, .password-recovery-link { color: #22d3ee; }
+.recovery-panel [hidden] { display: none !important; }
+#recoveryMessage { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+#recoveryMessage[data-error="true"] { color: #f3bdaa; }

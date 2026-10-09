@@ -1,0 +1,6 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Recuperar senha | Arcadia</title><link rel="icon" href="/assets/arcadia-logo.png"><link rel="stylesheet" href="css/global.css"><link rel="stylesheet" href="css/recovery.css"></head>
+<body><main class="recovery-main"><a class="recovery-brand" href="index.html"><img src="assets/arcadia-logo.png" alt="">Arcadia</a><section class="recovery-panel"><h1 id="recoveryTitle">Recuperar senha</h1>
+<form id="recoveryForm"><label id="identifierField">E-mail ou usuario<input name="identifier" autocomplete="username" maxlength="254" required></label>
+<div id="newPasswordFields" hidden><label>Nova senha<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72"></label><label>Confirmar senha<input name="confirmation" type="password" autocomplete="new-password" minlength="8" maxlength="72"></label></div>
+<p id="recoveryMessage" role="status"></p><button class="btn btn-primary" id="recoverySubmit">Enviar instrucoes</button></form><a href="index.html?login=1">Voltar para entrar</a></section></main><script src="js/recovery.js"></script></body></html>

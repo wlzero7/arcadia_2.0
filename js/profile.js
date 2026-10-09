@@ -235,108 +235,89 @@
             list.appendChild(div);
         });
     }
-    // ---------- AMIGOS (v0.9.5: favoritos + convites) ----------
-    async function loadFriends() {
-        const data = await ArcadiaAPI.request("/api/friends");
-        const reqBox = $("friendRequests");
-        reqBox.innerHTML = "";
-        data.requests.forEach((r) => {
-            const div = document.createElement("div");
-            div.className = "friend-request";
-            div.innerHTML = `<span>${ArcadiaAPI.escapeHtml(r.username)} quer ser seu amigo</span>`;
-            const btn = document.createElement("button");
-            btn.className = "btn btn-primary";
-            btn.textContent = "Aceitar";
-            btn.style.padding = ".3rem .8rem";
-            btn.addEventListener("click", async () => {
-                await ArcadiaAPI.request("/api/friends/accept", { method: "POST", body: JSON.stringify({ requestId: r.from_id }) });
-                loadFriends();
-            });
-            div.appendChild(btn);
-            reqBox.appendChild(div);
-        });
-
-        const list = $("friendsList");
-        list.innerHTML = "";
-        if (data.friends.length === 0) {
-            list.innerHTML = '<li class="muted">Nenhum amigo ainda.</li>';
-            return;
-        }
-
-        // favoritos primeiro, depois alfabético
-        const sorted = data.friends.slice()
-            .sort((a, b) => (b.favorite - a.favorite) || a.username.localeCompare(b.username));
-
-        sorted.forEach((f) => {
-            const li = document.createElement("li");
-            li.style.display = "flex";
-            li.style.alignItems = "center";
-            li.style.gap = ".4rem";
-            li.style.flexWrap = "wrap";
-
-            const name = document.createElement("span");
-            name.textContent = (f.favorite ? "⭐ " : "") + "👤 " + f.username;
-            name.style.flex = "1";
-            name.style.cursor = "pointer";
-            name.title = "Ver perfil público";
-            name.addEventListener("click", () => {
-                window.location.href = "perfil-publico.html?u=" + encodeURIComponent(f.username);
-            });
-            li.appendChild(name);
-
-            const favBtn = document.createElement("button");
-            favBtn.className = "remove-btn";
-            favBtn.textContent = "⭐";
-            favBtn.title = f.favorite ? "Remover dos favoritos" : "Favoritar";
-            favBtn.addEventListener("click", async () => {
-                await ArcadiaAPI.request("/api/friends/favorite", { method: "POST", body: JSON.stringify({ friendId: f.id }) });
-                loadFriends();
-            });
-            li.appendChild(favBtn);
-
-            const duelBtn = document.createElement("button");
-            duelBtn.className = "remove-btn";
-            duelBtn.textContent = "⚔️";
-            duelBtn.title = "Convidar para duelo x1";
-            duelBtn.addEventListener("click", async () => {
-                try {
-                    const inv = await ArcadiaAPI.request("/api/friends/invite", { method: "POST", body: JSON.stringify({ username: f.username, kind: "duel" }) });
-                    alert(`Convite de DUELO enviado! Código: ${inv.code}`);
-                } catch (err) { alert(err.message); }
-            });
-            li.appendChild(duelBtn);
-
-            const coopBtn = document.createElement("button");
-            coopBtn.className = "remove-btn";
-            coopBtn.textContent = "🤝";
-            coopBtn.title = "Convidar para sala coop";
-            coopBtn.addEventListener("click", async () => {
-                try {
-                    const inv = await ArcadiaAPI.request("/api/friends/invite", { method: "POST", body: JSON.stringify({ username: f.username, kind: "coop" }) });
-                    alert(`Convite de SALA enviado! Código: ${inv.code}`);
-                } catch (err) { alert(err.message); }
-            });
-            li.appendChild(coopBtn);
-
-            const btn = document.createElement("button");
-            btn.className = "remove-btn";
-            btn.textContent = "remover";
-            btn.addEventListener("click", async () => {
-                await ArcadiaAPI.request("/api/friends/remove", { method: "POST", body: JSON.stringify({ friendId: f.id }) });
-                loadFriends();
-            });
-            li.appendChild(btn);
-
-            list.appendChild(li);
-        });
+    let friendsData = { friends: [], requests: [], sent: [] };
+    function friendIdentity(friend) {
+        const link = document.createElement("a"); link.className = "friend-identity";
+        link.href = "perfil-publico.html?u=" + encodeURIComponent(friend.username);
+        const avatar = document.createElement("span"); avatar.className = "player-avatar";
+        const label = friend.displayName || friend.display_name || friend.username;
+        ArcadiaAvatar.render(avatar, friend.avatar, label);
+        const copy = document.createElement("span");
+        const name = document.createElement("strong"); name.textContent = label;
+        const detail = document.createElement("small"); detail.textContent = "@" + friend.username + " · Lv " + (friend.level || 1);
+        copy.append(name, detail); link.append(avatar, copy); return link;
     }
-    $("addFriendBtn").addEventListener("click", async () => {
+    function friendButton(icon, title, action, selected = false) {
+        const button = document.createElement("button"); button.type = "button";
+        button.className = "icon-button friend-action"; button.title = title; button.setAttribute("aria-label", title);
+        button.innerHTML = '<i data-lucide="' + icon + '"></i>';
+        if (icon === "star") button.setAttribute("aria-pressed", String(selected));
+        button.addEventListener("click", async () => {
+            button.disabled = true;
+            try { await action(); }
+            catch (error) { $("friendStatus").textContent = error.message; }
+            finally { button.disabled = false; }
+        });
+        return button;
+    }
+    async function friendChange(path, body, message) {
+        await ArcadiaAPI.request("/api/friends/" + path, { method: "POST", body: JSON.stringify(body) });
+        await loadFriends(); $("friendStatus").textContent = message;
+    }
+    function renderFriends() {
+        const query = $("friendSearch").value.trim().toLocaleLowerCase("pt-BR");
+        const visible = friendsData.friends.filter((friend) => ((friend.displayName || "") + " " + friend.username).toLocaleLowerCase("pt-BR").includes(query));
+        $("friendsCount").textContent = friendsData.friends.length;
+        const list = $("friendsList"); list.replaceChildren();
+        if (!visible.length) {
+            const empty = document.createElement("li"); empty.className = "friends-empty";
+            empty.textContent = query ? "Nenhum amigo encontrado." : "Sua lista esta vazia."; list.append(empty);
+        }
+        for (const friend of visible) {
+            const row = document.createElement("li"); row.className = "friend-row";
+            const actions = document.createElement("div"); actions.className = "friend-actions";
+            actions.append(friendButton("star", friend.favorite ? "Remover favorito" : "Favoritar", () => friendChange("favorite", { friendId: friend.id }, "Favoritos atualizados."), !!friend.favorite));
+            for (const [kind, icon, title] of [["duel", "swords", "Convidar para Duelo"], ["coop", "gamepad-2", "Convidar para Coop"]]) actions.append(friendButton(icon, title, async () => {
+                const invite = await ArcadiaAPI.request("/api/friends/invite", { method: "POST", body: JSON.stringify({ username: friend.username, kind }) });
+                $("friendStatus").textContent = "Convite enviado. Codigo: " + invite.code;
+            }));
+            actions.append(friendButton("user-minus", "Remover amizade", async () => {
+                if (confirm("Remover a amizade com " + friend.username + "?")) await friendChange("remove", { friendId: friend.id }, "Amizade removida.");
+            }));
+            row.append(friendIdentity(friend), actions); list.append(row);
+        }
+        const requests = $("friendRequests"); requests.replaceChildren();
+        for (const [items, outgoing] of [[friendsData.requests, false], [friendsData.sent || [], true]]) {
+            if (!items.length) continue;
+            const heading = document.createElement("h3"); heading.textContent = outgoing ? "Enviados" : "Recebidos"; requests.append(heading);
+            for (const friend of items) {
+                const row = document.createElement("div"); row.className = "friend-request";
+                const actions = document.createElement("div"); actions.className = "friend-actions";
+                if (!outgoing) actions.append(friendButton("check", "Aceitar pedido", () => friendChange("accept", { requestId: friend.from_id }, "Amizade aceita.")));
+                actions.append(friendButton("x", outgoing ? "Cancelar pedido" : "Recusar pedido", () => friendChange("remove", { friendId: friend.id }, "Pedido removido.")));
+                row.append(friendIdentity(friend), actions); requests.append(row);
+            }
+        }
+        window.lucide?.createIcons();
+    }
+    async function loadFriends() {
+        try { friendsData = await ArcadiaAPI.request("/api/friends"); renderFriends(); }
+        catch (error) { $("friendStatus").textContent = error.message; }
+    }
+    $("friendSearch").addEventListener("input", renderFriends);
+    $("friendForm").addEventListener("submit", async (event) => {
+        event.preventDefault(); $("addFriendBtn").disabled = true;
         try {
-            await ArcadiaAPI.request("/api/friends/request", { method: "POST", body: JSON.stringify({ username: $("friendUsername").value }) });
+            await friendChange("request", { username: $("friendUsername").value.trim() }, "Pedido de amizade enviado.");
             $("friendUsername").value = "";
-            loadFriends();
-        } catch (err) { alert(err.message); }
+        } catch (err) { $("friendStatus").textContent = err.message; }
+        finally { $("addFriendBtn").disabled = false; }
     });
+    async function loadCommunityStats() {
+        try { const { mine } = await ArcadiaAPI.request("/api/community/stats");
+            for (const [id, key] of [["communityTopics", "topics"], ["communityFeedbacks", "feedbacks"], ["communityComments", "comments"]]) $(id).textContent = mine[key];
+        } catch (error) { $("communityTopics").textContent = "—"; }
+    }
     // ---------- CONVITES EM TEMPO REAL (Socket.IO) ----------
     (function setupInvites() {
         const s = document.createElement("script");
@@ -392,6 +373,7 @@
             loadFullStats();
             loadTx();
             loadFriends();
+            loadCommunityStats();
         } catch (err) {
             // token inválido/expirado
             if (err.status === 401) renderLoginGate();

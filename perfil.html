@@ -80,13 +80,21 @@
                     <div><span class="muted">Vitórias</span><strong id="stWins">—</strong></div>
                     <div><span class="muted">Lucro</span><strong id="stNet">—</strong></div>
                 </div>
-                <h2 style="margin-top:1.2rem;">🤝 Amigos</h2>
-                <div class="field-row">
-                    <input type="text" id="friendUsername" placeholder="username">
-                    <button class="btn btn-primary" id="addFriendBtn">Adicionar</button>
-                </div>
-                <div id="friendRequests"></div>
+                <div class="friends-heading"><h2><i data-lucide="users-round"></i> Amigos</h2><span id="friendsCount">0</span></div>
+                <form class="field-row" id="friendForm">
+                    <label class="sr-only" for="friendUsername">Nome de usuario do amigo</label>
+                    <input type="text" id="friendUsername" placeholder="Nome de usuario" maxlength="30" required autocomplete="off">
+                    <button class="btn btn-primary" id="addFriendBtn" title="Enviar pedido de amizade"><i data-lucide="user-plus"></i> Adicionar</button>
+                </form>
+                <p id="friendStatus" class="friend-status" role="status"></p>
+                <label class="friend-search"><i data-lucide="search"></i><input id="friendSearch" type="search" placeholder="Buscar amigos" aria-label="Buscar amigos"></label>
+                <section id="friendRequests" aria-label="Pedidos de amizade"></section>
                 <ul id="friendsList" class="friends-list"></ul>
+                <div class="community-contributions"><h3>Minha comunidade</h3><div class="stats-row">
+                    <div><span class="muted">Topicos</span><strong id="communityTopics">0</strong></div>
+                    <div><span class="muted">Feedbacks</span><strong id="communityFeedbacks">0</strong></div>
+                    <div><span class="muted">Comentarios</span><strong id="communityComments">0</strong></div>
+                </div><a href="comunidade.html">Ver comunidade <i data-lucide="arrow-up-right"></i></a></div>
             </section>
 
             <!-- Extrato -->

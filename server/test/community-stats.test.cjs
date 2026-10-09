@@ -1,0 +1,24 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
+process.env.DB_PATH = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "arcadia-social-")), "test.db");
+process.env.TURSO_DATABASE_URL = "";
+const pool = require("../src/config/database");
+const community = require("../src/services/community");
+const id = pool.db.run("INSERT INTO users(username,email,password_hash,level) VALUES('social','social@example.test','test',5)").lastInsertRowid;
+const other = pool.db.run("INSERT INTO users(username,email,password_hash) VALUES('viewer','viewer@example.test','test')").lastInsertRowid;
+test("community counters respect feedback access, ownership and removed content", () => {
+    const a = community.create(id, { title: "A public discussion", body: "A long enough discussion body." }).id;
+    pool.db.run("UPDATE community_threads SET created_at=datetime('now','-2 minutes') WHERE id=?", [a]);
+    const b = community.create(id, { category: "feedback", title: "Private feedback", body: "A long enough feedback body." }).id;
+    const reply = community.reply(id, b, { body: "My feedback reply" }).id;
+    assert.deepEqual(community.statistics(id).mine, { topics: 1, feedbacks: 1, comments: 1 });
+    assert.deepEqual(community.statistics(other).totals, { topics: 1, feedbacks: 0, comments: 0 });
+    assert.deepEqual(community.statistics().totals, { topics: 1, feedbacks: 0, comments: 0 });
+    community.moderate(id, b, { action: "remove", reason: "Removed by its author" }, reply);
+    assert.equal(community.statistics(id).mine.comments, 0);
+    community.moderate(id, b, { action: "remove", reason: "Removed by its author" });
+    assert.deepEqual(community.statistics(id).mine, { topics: 1, feedbacks: 0, comments: 0 });
+});

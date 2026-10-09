@@ -26,11 +26,21 @@ test("Football and Community real HTTP enforce sessions, level gates, moderation
         assert.equal((await request("/api/games/football/club")).status,401);
         assert.equal((await request("/api/community/threads?category=discussion")).status,200);
         assert.equal((await request("/api/community/threads?category=feedback")).status,401);
-        const feedback={category:"feedback",title:"Ideia para a arena",body:"Quero sugerir uma melhoria para as partidas de futebol."};
+        const picture = await require("sharp")({ create: { width: 640, height: 360, channels: 3, background: "green" } }).png().toBuffer();
+        const feedback={category:"feedback",title:"Ideia para a arena",body:"Quero sugerir uma melhoria para as partidas de futebol.",images:[picture.toString("base64")]};
         assert.equal((await request("/api/community/threads",feedback,a.cookie)).status,403);
         db.run("UPDATE users SET level=5 WHERE id=?",[a.data.user.id]);
         const thread=await request("/api/community/threads",feedback,a.cookie);assert.equal(thread.status,200);
         const url="/api/community/threads/"+thread.data.id;
+        const detail = await request(url,null,a.cookie), mediaUrl = "/api/community/images/"+detail.data.thread.images[0].id;
+        assert.equal((await request(mediaUrl)).status,401);
+        assert.equal((await request(mediaUrl,null,b.cookie)).status,403);
+        const imageResponse = await fetch(base+mediaUrl,{headers:{Cookie:a.cookie}});
+        assert.equal(imageResponse.status,200); assert.equal(imageResponse.headers.get("content-type"),"image/webp");
+        assert.equal(imageResponse.headers.get("cache-control"),"private, no-store");
+        assert.equal((await require("sharp")(Buffer.from(await imageResponse.arrayBuffer())).metadata()).width,640);
+        const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"></svg>').toString("base64");
+        assert.equal((await request("/api/community/threads",{...feedback,images:[svg]},a.cookie)).status,400);
         assert.equal((await request(url,null,b.cookie)).status,403);
         assert.equal((await request(url+"/replies",{body:"Nao posso acessar"},b.cookie)).status,403);
         assert.equal((await request(url+"/like",{liked:true},b.cookie)).status,403);
@@ -52,7 +62,7 @@ test("Football and Community real HTTP enforce sessions, level gates, moderation
         assert.equal(started.status,200);assert.equal(started.data.match.winner,undefined);assert.equal(started.data.match.timeline,undefined);
         const outsider=await request("/api/games/football/state",null,b.cookie);assert.equal(outsider.data.match,null);
         assert.equal((await request("/api/games/football/start",{allWin:true,choice:{home:"aurora",away:"bairro",picked:"home"}},a.cookie)).status,400);
-        for(const url of ["/football.html","/comunidade.html","/js/football-stadium.js","/assets/vendor/three.module.js","/assets/vendor/three.core.js"])assert.equal((await fetch(base+url)).status,200);
+        for(const url of ["/football.html","/comunidade.html","/recuperar-senha.html","/js/football-stadium.js","/assets/vendor/three.module.js","/assets/vendor/three.core.js"])assert.equal((await fetch(base+url)).status,200);
         assert.equal((await fetch(base+"/server/.env.turso-test")).status,404);
     }finally{
         db?.close();const exited=once(child,"exit").catch(()=>{});child.kill();await exited;

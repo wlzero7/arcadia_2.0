@@ -201,6 +201,18 @@ CREATE TABLE IF NOT EXISTS avatar_images (
     image BLOB NOT NULL,
     version TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS password_recovery (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_version INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_password_recovery_user ON password_recovery(user_id);
+CREATE TABLE IF NOT EXISTS password_recovery_limits (
+    key_hash TEXT PRIMARY KEY,
+    attempts INTEGER NOT NULL,
+    resets_at INTEGER NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_rooms_code ON rooms(code);
 CREATE INDEX IF NOT EXISTS idx_slots_cards_user ON slots_cards(user_id);
 CREATE TABLE IF NOT EXISTS community_threads (
@@ -226,6 +238,17 @@ CREATE TABLE IF NOT EXISTS community_likes (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     PRIMARY KEY (thread_id,user_id)
 );
+CREATE TABLE IF NOT EXISTS community_images (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    thread_id INTEGER NOT NULL REFERENCES community_threads(id) ON DELETE CASCADE,
+    reply_id INTEGER REFERENCES community_replies(id) ON DELETE CASCADE,
+    image BLOB NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_community_images_thread ON community_images(thread_id,reply_id);
+CREATE INDEX IF NOT EXISTS idx_community_images_user ON community_images(user_id);
 CREATE TABLE IF NOT EXISTS community_moderation (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,

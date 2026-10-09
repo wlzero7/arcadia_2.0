@@ -46,8 +46,10 @@ app.use(security.originGuard);
 app.use(cors({ origin: (origin, cb) => cb(null, (process.env.ALLOWED_ORIGINS || "").split(",").includes(origin)), credentials: true }));
 
 app.use(compression()); // gzip nas respostas
-app.use(express.json({ limit: "64kb" }));
 app.use(cookieParser());
+// Only authenticated community publications accept larger image payloads.
+app.use("/api/community", require("./routes/community-images.routes"));
+app.use(express.json({ limit: "64kb" }));
 
 // Cache: HTML sempre revalida; JS/CSS revalidam via ETag (rápido, 304) mas nunca ficam velhos.
 // (max-age longo aqui serviu versão bugada por 24h na v0.9.4 — nunca mais)
@@ -84,6 +86,7 @@ app.use((req, res, next) => {
 // ========================================
 
 app.use("/api/auth", security.authRateLimit(), authRoutes);
+app.use("/api/auth", require("./routes/recovery.routes"));
 app.use("/api/avatars", require("./routes/avatar.routes"));
 app.use("/api/games/slots", slotsRoutes);
 app.use("/api/games/football", require("./routes/football.routes").router);

@@ -30,6 +30,11 @@
                     <button id="feedbackTab" role="tab" aria-selected="false" data-category="feedback"><i data-lucide="lightbulb"></i> Feedbacks <i data-lucide="lock-keyhole" class="feedback-lock"></i></button>
                 </div>
                 <div class="community-profile" id="communityProfile"></div>
+                <section class="community-counts" aria-label="Estatisticas da comunidade"><h2>Comunidade em numeros</h2><dl>
+                    <div><dt>Topicos</dt><dd id="totalTopics">-</dd></div>
+                    <div><dt>Feedbacks</dt><dd id="totalFeedbacks">-</dd></div>
+                    <div><dt>Comentarios</dt><dd id="totalComments">-</dd></div>
+                </dl></section>
                 <div class="community-rules"><h2>Convivencia</h2><p>Respeito entre jogadores. Sem spam, dados privados ou ofertas de dinheiro real.</p></div>
             </aside>
             <section class="community-feed" aria-label="Topicos">
@@ -47,6 +52,8 @@
             <div class="dialog-heading"><h2>Novo topico</h2><button type="button" class="icon-button" data-close="composeDialog" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button></div>
             <label for="threadTitle">Titulo</label><input id="threadTitle" required minlength="8" maxlength="120" autocomplete="off">
             <label for="threadBody">Mensagem</label><textarea id="threadBody" required minlength="20" maxlength="6000" rows="8"></textarea>
+            <div class="attachment-tools"><button type="button" class="icon-button" data-pick="threadImages" title="Adicionar imagens" aria-label="Adicionar imagens"><i data-lucide="image-plus"></i></button><span id="threadImageCount">0 / 2</span><input id="threadImages" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden></div>
+            <div id="threadPreviews" class="attachment-previews"></div>
             <p id="composeMessage" role="alert"></p><button class="btn btn-primary" type="submit">Publicar <i data-lucide="send"></i></button>
         </form>
     </dialog>
@@ -54,7 +61,10 @@
         <div class="dialog-heading"><span id="threadCategory"></span><button class="icon-button" data-close="threadDialog" title="Fechar" aria-label="Fechar"><i data-lucide="x"></i></button></div>
         <div id="threadContent"></div>
         <div id="replyList"></div><button class="btn btn-outline" id="olderReplies" hidden>Respostas anteriores</button>
-        <form id="replyForm"><label for="replyBody">Sua resposta</label><textarea id="replyBody" required minlength="3" maxlength="2000" rows="3"></textarea><button class="btn btn-primary">Responder <i data-lucide="send"></i></button></form>
+        <form id="replyForm"><label for="replyBody">Sua resposta</label><textarea id="replyBody" required minlength="3" maxlength="2000" rows="3"></textarea>
+            <div class="attachment-tools"><button type="button" class="icon-button" data-pick="replyImages" title="Adicionar imagens a resposta" aria-label="Adicionar imagens a resposta"><i data-lucide="image-plus"></i></button><span id="replyImageCount">0 / 2</span><input id="replyImages" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden></div>
+            <div id="replyPreviews" class="attachment-previews"></div>
+            <button class="btn btn-primary" type="submit">Responder <i data-lucide="send"></i></button></form>
         <p id="replyMessage" role="status"></p>
     </dialog>
     <dialog id="moderationDialog" class="community-dialog">
@@ -62,6 +72,7 @@
             <label for="moderationReason">Motivo</label><textarea id="moderationReason" required minlength="5" maxlength="500" rows="3"></textarea><p id="moderationMessage" role="alert"></p><button class="btn btn-primary">Confirmar</button>
         </form>
     </dialog>
+    <dialog id="imageDialog" class="community-dialog image-dialog"><div class="dialog-heading"><h2>Imagem</h2><button class="icon-button" data-close="imageDialog" title="Fechar imagem" aria-label="Fechar imagem"><i data-lucide="x"></i></button></div><img id="fullImage" alt="Imagem da publicacao"></dialog>
     <script src="js/api.js"></script><script src="js/wallet.js"></script>
     <script src="assets/lucide.min.js"></script><script src="js/community.js"></script>
 </body>

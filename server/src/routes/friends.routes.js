@@ -27,7 +27,7 @@ const router = express.Router();
 router.get("/", authenticate, async (req, res) => {
     try {
         const accepted = await pool.query(
-            `SELECT u.id, u.username,
+            `SELECT u.id, u.username, u.display_name, u.avatar, u.level,
                     CASE WHEN f.user_id = ? THEN f.friend_id ELSE f.user_id END AS friend_id,
                     CASE WHEN ff.user_id IS NOT NULL THEN 1 ELSE 0 END AS favorite
              FROM friendships f
@@ -41,17 +41,21 @@ router.get("/", authenticate, async (req, res) => {
         );
 
         const pending = await pool.query(
-            `SELECT u.id, u.username, f.user_id AS from_id
+            `SELECT u.id, u.username, u.display_name, u.avatar, u.level, f.user_id AS from_id
              FROM friendships f
              INNER JOIN users u ON u.id = f.user_id
              WHERE f.friend_id = ? AND f.status = 'pending'`,
             [req.user.id]
         );
 
+        const sent = await pool.query(`SELECT u.id, u.username, u.display_name, u.avatar, u.level
+            FROM friendships f JOIN users u ON u.id=f.friend_id
+            WHERE f.user_id=? AND f.status='pending' ORDER BY u.username`, [req.user.id]);
         return res.json({
             status: "success",
-            friends: accepted.rows.map((r) => ({ id: r.friend_id, username: r.username, favorite: r.favorite })),
+            friends: accepted.rows.map((r) => ({ id: r.friend_id, username: r.username, displayName: r.display_name || r.username, avatar: r.avatar, level: r.level, favorite: r.favorite })),
             requests: pending.rows,
+            sent: sent.rows,
         });
     } catch (error) {
         return res.status(500).json({ status: "error", message: "Erro ao listar amigos." });

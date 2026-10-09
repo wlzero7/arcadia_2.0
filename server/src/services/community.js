@@ -67,14 +67,24 @@ function detail(userId, id, query = {}) {
     const rows = pool.db.all(`SELECT r.id,r.user_id,r.body,r.created_at,u.username,u.display_name,u.avatar,u.level
         FROM community_replies r JOIN users u ON u.id=r.user_id
         WHERE r.thread_id=? AND r.removed=0 AND r.id<? ORDER BY r.id DESC LIMIT ?`, [value.id, before, limit + 1]);
-    return { thread: { ...value, ...author, ...counts, canManage: permissions.moderator || value.user_id === userId },
-        replies: rows.slice(0, limit), nextCursor: rows.length > limit ? rows[limit - 1].id : null, moderator: permissions.moderator };
+    const images = pool.db.all("SELECT id,reply_id,width,height FROM community_images WHERE thread_id=?", [value.id]);
+    const attachments = (replyId) => images.filter((image) => image.reply_id === replyId).map(({ id, width, height }) => ({ id, width, height }));
+    return { thread: { ...value, ...author, ...counts, images: attachments(null), canManage: permissions.moderator || value.user_id === userId },
+        replies: rows.slice(0, limit).map((row) => ({ ...row, images: attachments(row.id) })), nextCursor: rows.length > limit ? rows[limit - 1].id : null, moderator: permissions.moderator };
 }
 function throttle(userId, table, seconds) {
     const recent = pool.db.get(`SELECT 1 FROM ${table} WHERE user_id=? AND created_at>datetime('now',?) LIMIT 1`, [userId, "-" + seconds + " seconds"]);
     if (recent) throw new CommunityError("Aguarde antes de publicar novamente.", 429);
 }
-function create(userId, body = {}) {
+function saveImages(userId, threadId, replyId, images) {
+    if (!images.length) return;
+    const usage = pool.db.get("SELECT COUNT(*) AS count,COALESCE(SUM(length(image)),0) AS bytes FROM community_images WHERE user_id=?", [userId]);
+    if (usage.count + images.length > 80 || usage.bytes + images.reduce((sum, item) => sum + item.image.length, 0) > 32 * 1024 * 1024) {
+        throw new CommunityError("Limite de imagens atingido. Remova publicacoes antigas para liberar espaco.", 409);
+    }
+    for (const item of images) pool.db.run("INSERT INTO community_images(user_id,thread_id,reply_id,image,width,height) VALUES(?,?,?,?,?,?)", [userId, threadId, replyId, item.image, item.width, item.height]);
+}
+function create(userId, body = {}, images = []) {
     const channel = category(body.category);
     requireAccess(userId, channel, true);
     const title = text(body.title, 8, 120, "Titulo");
@@ -82,10 +92,11 @@ function create(userId, body = {}) {
     return pool.transactionSync(() => {
         throttle(userId, "community_threads", 90);
         const result = pool.db.run("INSERT INTO community_threads(user_id,category,title,body) VALUES(?,?,?,?)", [userId, channel, title, copy]);
+        saveImages(userId, Number(result.lastInsertRowid), null, images);
         return { id: Number(result.lastInsertRowid) };
     });
 }
-function reply(userId, id, body = {}) {
+function reply(userId, id, body = {}, images = []) {
     const copy = text(body.body, 3, 2000, "Resposta");
     return pool.transactionSync(() => {
         const value = thread(userId, id);
@@ -93,6 +104,7 @@ function reply(userId, id, body = {}) {
         if (value.state !== "open") throw new CommunityError("Este topico esta encerrado.", 409);
         throttle(userId, "community_replies", 10);
         const result = pool.db.run("INSERT INTO community_replies(thread_id,user_id,body) VALUES(?,?,?)", [value.id, userId, copy]);
+        saveImages(userId, value.id, Number(result.lastInsertRowid), images);
         return { id: Number(result.lastInsertRowid) };
     });
 }
@@ -116,11 +128,34 @@ function moderate(userId, id, body = {}, replyId = null) {
         if (!permissions.moderator && target.user_id !== userId) throw new CommunityError("Acao nao autorizada.", 403);
         const action = body.action;
         if (replyId && action !== "remove") throw new CommunityError("Acao invalida.");
-        if (action === "remove") pool.db.run(replyId ? "UPDATE community_replies SET removed=1 WHERE id=?" : "UPDATE community_threads SET removed=1 WHERE id=?", [target.id]);
+        if (action === "remove") {
+            pool.db.run(replyId ? "UPDATE community_replies SET removed=1 WHERE id=?" : "UPDATE community_threads SET removed=1 WHERE id=?", [target.id]);
+            pool.db.run(replyId ? "DELETE FROM community_images WHERE reply_id=?" : "DELETE FROM community_images WHERE thread_id=?", [target.id]);
+        }
         else if (["close", "reopen"].includes(action)) pool.db.run("UPDATE community_threads SET state=? WHERE id=?", [action === "close" ? "closed" : "open", target.id]);
         else throw new CommunityError("Acao invalida.");
         pool.db.run("INSERT INTO community_moderation(actor_id,target_type,target_id,action,reason) VALUES(?,?,?,?,?)", [userId, replyId ? "reply" : "thread", target.id, action, reason]);
         return { changed: true };
     });
 }
-module.exports = { CommunityError, access, requireAccess, list, detail, create, reply, like, moderate };
+function statistics(userId) {
+    const canFeedback = access(userId).canFeedback ? 1 : 0;
+    const totals = pool.db.get(`SELECT COUNT(*) AS topics,
+        COALESCE(SUM(category='feedback'),0) AS feedbacks,
+        COALESCE(SUM(user_id=?),0) AS ownTopics,
+        COALESCE(SUM(user_id=? AND category='feedback'),0) AS ownFeedbacks
+        FROM community_threads WHERE removed=0 AND (category='discussion' OR ?=1)`, [userId || 0, userId || 0, canFeedback]);
+    const replies = pool.db.get(`SELECT COUNT(*) AS comments, COALESCE(SUM(r.user_id=?),0) AS ownComments
+        FROM community_replies r JOIN community_threads t ON t.id=r.thread_id
+        WHERE r.removed=0 AND t.removed=0 AND (t.category='discussion' OR ?=1)`, [userId || 0, canFeedback]);
+    return { totals: { topics: totals.topics - totals.feedbacks, feedbacks: totals.feedbacks, comments: replies.comments },
+        mine: { topics: totals.ownTopics - totals.ownFeedbacks, feedbacks: totals.ownFeedbacks, comments: replies.ownComments }, canFeedback: !!canFeedback };
+}
+function image(userId, id) {
+    const row = pool.db.get(`SELECT i.image,t.category FROM community_images i JOIN community_threads t ON t.id=i.thread_id
+        LEFT JOIN community_replies r ON r.id=i.reply_id WHERE i.id=? AND t.removed=0 AND (i.reply_id IS NULL OR r.removed=0)`, [positiveId(id)]);
+    if (!row) throw new CommunityError("Imagem nao encontrada.", 404);
+    requireAccess(userId, row.category);
+    return row.image;
+}
+module.exports = { CommunityError, access, requireAccess, list, detail, create, reply, like, moderate, statistics, image, thread };
